@@ -275,8 +275,14 @@ workspace() {
         fi
     else
         echo "---"
-        echo "Could not automatically enter workspace. Please 'cd $project_pathy
-        ' manually."
+        if [ -z "$project_path" ]; then
+            echo "❌ Could not determine workspace path from script output."
+        elif [ ! -d "$project_path" ]; then
+            echo "❌ Workspace path '$project_path' does not exist or is not a directory."
+        else
+            echo "❌ Could not automatically enter workspace."
+        fi
+        echo "Please check the output above for errors."
     fi
 }
 

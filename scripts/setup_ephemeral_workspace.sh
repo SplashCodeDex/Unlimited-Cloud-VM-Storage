@@ -36,8 +36,12 @@ temp_history=$(mktemp)
     rm "$temp_history"
 }
 
-# --- NEW: Main Logic Router ---
 main() {
+    if ! command -v git &> /dev/null; then
+        echo "Error: git is not installed. Please install git and try again." >&2
+        exit 1
+    fi
+
     mkdir -p "$WORKSPACE_BASE_DIR"
 
     # --- Sub-command: list (default) ---

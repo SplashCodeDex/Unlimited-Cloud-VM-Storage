@@ -6,10 +6,14 @@
 set -e
 
 HISTORY_FILE="$HOME/.workspace_history"
+LOG_FILE="$HOME/.workspace_warming.log"
 # Number of recent projects to pre-warm. Let's start with 1.
 PROJECT_COUNT=1
 
+echo "--- Starting workspace warming: $(date) --- " > "$LOG_FILE"
+
 if [ ! -f "$HISTORY_FILE" ]; then
+    echo "No history file found. Exiting." >> "$LOG_FILE"
     # No history, nothing to do.
     exit 0
 fi
@@ -39,7 +43,7 @@ head -n "$PROJECT_COUNT" "$HISTORY_FILE" | while IFS=$'\t' read -r git_url proje
                 # If it failed, remove the potentially incomplete directory
                 rm -rf "$project_path"
             fi
-        ) &
+        ) >> "$LOG_FILE" 2>&1 &
     done
 
 # Wait for all background clone jobs to finish before the script exits.
