@@ -5,7 +5,7 @@ case $- in
 esac
 
 # Path to your oh-my-bash installation.
-export OSH='/home/splashdexstudios/.oh-my-bash'
+export OSH="$HOME/.oh-my-bash"
 
 # Set name of the theme to load. Optionally, if you set this to "random"
 # it'll load a random theme each time that oh-my-bash is loaded.
@@ -199,26 +199,14 @@ xterm*|rxvt*)
     ;;
 esac
 
-# enable color support of ls and also add handy aliases
-if [ -x /usr/bin/dircolors ]; then
-    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
-    alias ls='ls --color=auto'
-    #alias dir='dir --color=auto'
-    #alias vdir='vdir --color=auto'
-
-    alias grep='grep --color=auto'
-    alias fgrep='fgrep --color=auto'
-    alias egrep='egrep --color=auto'
+# Source custom aliases and functions
+if [ -f ~/.aliases ]; then
+    . ~/.aliases
 fi
 
-# some more ls aliases
-ll='ls -alF'
-la='ls -A'
-l='ls -CF'
-
-# Add an "alert" alias for long running commands. Use like so:
-#   sleep 10; alert
-alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\t*[0-9]\t* //;s/[;&|] alert$//'\'')"'
+if [ -f ~/.functions ]; then
+    . ~/.functions
+fi
 
 # Alias definitions.
 # You may want to put all your additions into a separate file like
@@ -244,53 +232,8 @@ fi
 source /google/devshell/bashrc.google
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
-# --- Unified Ephemeral Workspace Tools ---
-# The 'workspace' and 'code' commands are robust wrappers around the
-# '/home/splashdexstudios/setup_ephemeral_workspace.sh' script, ensuring a single,
-# reliable implementation for workspace management.
-
-# Command to set up a workspace, automatically enter it, and open the editor.
-workspace() {
-    # Run the setup script and capture all of its output to a variable.
-    local output
-    output=$(bash /home/splashdexstudios/dotfiles/scripts/setup_ephemeral_workspace.sh "$@")
-
-    # Display the script's original output to the user.
-    echo "$output"
-
-    # Intelligently parse the output to find the project path.
-    # It looks for the line that starts with 'cd ' and extracts the path.
-    local project_path
-    project_path=$(echo "$output" | tail -n 1)
-
-    if [ -n "$project_path" ] && [ -d "$project_path" ]; then
-        cd "$project_path"
-        echo "---"
-        echo "✅ Automatically entered workspace."
-        if command -v code &> /dev/null; then
-            echo "Launching VS Code..."
-            code -r .
-        else
-            echo " Please open your preferred editor manually in '$project_path'."
-        fi
-    else
-        echo "---"
-        if [ -z "$project_path" ]; then
-            echo "❌ Could not determine workspace path from script output."
-        elif [ ! -d "$project_path" ]; then
-            echo "❌ Workspace path '$project_path' does not exist or is not a directory."
-        else
-            echo "❌ Could not automatically enter workspace."
-        fi
-        echo "Please check the output above for errors."
-    fi
-}
-
 # Hook direnv into the shell for automatic environment variable management.
 eval "$(direnv hook bash)"
 
 # Silently warm the ephemeral workspaces in the background.
-bash /home/splashdexstudios/dotfiles/scripts/warm_workspaces.sh &
-
-# Alias to clean up the vscode-server cache
-alias clean_vscode='rm -rf /home/splashdexstudios/.vscode-server/data/CachedExtensionVSIXs/*'
+bash "$HOME/dotfiles/scripts/warm_workspaces.sh" &

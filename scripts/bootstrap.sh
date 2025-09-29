@@ -18,9 +18,23 @@ echo_success() {
 echo_info "Updating package list..."
 sudo apt-get update
 
-echo_info "Installing dependencies (git, stow)..."
-sudo apt-get install -y git stow
-echo_success "Dependencies installed."
+echo_info "Checking for dependencies..."
+
+if ! command -v git &> /dev/null; then
+    echo_info "Installing git..."
+    sudo apt-get install -y git
+    echo_success "git installed."
+else
+    echo_success "git is already installed."
+fi
+
+if ! command -v stow &> /dev/null; then
+    echo_info "Installing stow..."
+    sudo apt-get install -y stow
+    echo_success "stow installed."
+else
+    echo_success "stow is already installed."
+fi
 
 # --- Dotfiles Setup ---
 # The directory where this script is located.

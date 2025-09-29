@@ -1,0 +1,41 @@
+# --- Unified Ephemeral Workspace Tools ---
+# The 'workspace' and 'code' commands are robust wrappers around the
+# '$HOME/dotfiles/scripts/setup_ephemeral_workspace.sh' script, ensuring a single,
+# reliable implementation for workspace management.
+
+# Command to set up a workspace, automatically enter it, and open the editor.
+workspace() {
+    # Run the setup script and capture all of its output to a variable.
+    local output
+    output=$(bash "$HOME/dotfiles/scripts/setup_ephemeral_workspace.sh" "$@")
+
+    # Display the script's original output to the user.
+    echo "$output"
+
+    # Intelligently parse the output to find the project path.
+    # It looks for the line that starts with 'cd ' and extracts the path.
+    local project_path
+    project_path=$(echo "$output" | tail -n 1)
+
+    if [ -n "$project_path" ] && [ -d "$project_path" ]; then
+        cd "$project_path"
+        echo "---"
+        echo "✅ Automatically entered workspace."
+        if command -v code &> /dev/null; then
+            echo "Launching VS Code..."
+            code -r .
+        else
+            echo " Please open your preferred editor manually in '$project_path'."
+        fi
+    else
+        echo "---"
+        if [ -z "$project_path" ]; then
+            echo "❌ Could not determine workspace path from script output."
+        elif [ ! -d "$project_path" ]; then
+            echo "❌ Workspace path '$project_path' does not exist or is not a directory."
+        else
+            echo "❌ Could not automatically enter workspace."
+        fi
+        echo "Please check the output above for errors."
+    fi
+}
