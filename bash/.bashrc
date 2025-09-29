@@ -14,7 +14,7 @@ OSH_THEME="random"
 # If you set OSH_THEME to "random", you can ignore themes you don't like.
 # OMB_THEME_RANDOM_IGNORED=("powerbash10k" "wanelo")
 # You can also specify the list from which a theme is randomly selected:
- OMB_THEME_RANDOM_CANDIDATES=("font" "powerbash10k" "wanelo" "minimal" "powerline-dark")
+ OMB_THEME_RANDOM_CANDIDATES=("font" "powerbash10k" "wanelo" "minimal")
 
 # Uncomment the following line to use case-sensitive completion.
 # OMB_CASE_SENSITIVE="true"
@@ -253,7 +253,7 @@ eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 workspace() {
     # Run the setup script and capture all of its output to a variable.
     local output
-    output=$(bash /home/splashdexstudios/setup_ephemeral_workspace.sh "$@")
+    output=$(bash /home/splashdexstudios/dotfiles/scripts/setup_ephemeral_workspace.sh "$@")
 
     # Display the script's original output to the user.
     echo "$output"
@@ -290,7 +290,7 @@ workspace() {
 eval "$(direnv hook bash)"
 
 # Silently warm the ephemeral workspaces in the background.
-bash /home/splashdexstudios/warm_workspaces.sh &
+bash /home/splashdexstudios/dotfiles/scripts/warm_workspaces.sh &
 
 # Alias to clean up the vscode-server cache
 alias clean_vscode='rm -rf /home/splashdexstudios/.vscode-server/data/CachedExtensionVSIXs/*'
