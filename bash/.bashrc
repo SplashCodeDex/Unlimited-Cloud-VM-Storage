@@ -275,7 +275,8 @@ workspace() {
         fi
     else
         echo "---"
-        echo "Could not automatically enter workspace. Please 'cd $project_path' manually."
+        echo "Could not automatically enter workspace. Please 'cd $project_pathy
+        ' manually."
     fi
 }
 
@@ -284,3 +285,6 @@ eval "$(direnv hook bash)"
 
 # Silently warm the ephemeral workspaces in the background.
 bash /home/splashdexstudios/warm_workspaces.sh &
+
+# Alias to clean up the vscode-server cache
+alias clean_vscode='rm -rf /home/splashdexstudios/.vscode-server/data/CachedExtensionVSIXs/*'
