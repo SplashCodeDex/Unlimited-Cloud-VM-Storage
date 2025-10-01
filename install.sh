@@ -134,7 +134,7 @@ workspace() {
 }
 
 _warm_workspaces() {
-    if [ -f \"$WARM_SCRIPT_PATH\" ]; then
+    if [ -f \"$WARM_SCRIPT_PATH\" ] && [ -x \"$WARM_SCRIPT_PATH\" ]; then
         bash \"$WARM_SCRIPT_PATH\" &>/dev/null &
     fi
 }
