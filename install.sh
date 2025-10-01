@@ -56,44 +56,74 @@ check_dependencies() {
 
     echo "Warning: The following dependencies are missing: ${missing_deps[*]}"
 
+    local should_install=false
     if [ "$NON_INTERACTIVE" = true ]; then
-        REPLY="y"
+        should_install=true
     else
         read -p "This script can attempt to install them for you. May I proceed? [Y/n] " -n 1 -r
         echo
-    fi
-
-    if [[ ! $REPLY =~ ^[Yy]$ ]] && [ "$NON_INTERACTIVE" = false ]; then abort "Installation declined."; fi
-
-    local pm_base_cmd=""
-    local needs_sudo=true
-    if command -v apt-get &>/dev/null; then pm_base_cmd="apt-get install -y";
-    elif command -v yum &>/dev/null; then pm_base_cmd="yum install -y";
-    elif command -v dnf &>/dev/null; then pm_base_cmd="dnf install -y";
-    elif command -v pacman &>/dev/null; then pm_base_cmd="pacman -S --noconfirm";
-    elif command -v brew &>/dev/null; then pm_base_cmd="brew install"; needs_sudo=false; fi
-
-    if [ -z "$pm_base_cmd" ]; then
-        abort "Could not detect a package manager. Please install the missing dependencies manually."
-    fi
-
-    local install_cmd="$pm_base_cmd ${missing_deps[*]}"
-    if [ "$needs_sudo" = true ] && [ "$(id -u)" -ne 0 ]; then
-        if ! command -v sudo &>/dev/null; then
-            abort "`sudo` command not found. Please install the missing dependencies manually: ${missing_deps[*]}"
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            should_install=true
         fi
-        if ! sudo sh -c "$install_cmd"; then abort "Installation with sudo failed. Please try installing them manually."; fi
-    else
-        if ! sh -c "$install_cmd"; then abort "Installation failed. Please try installing missing dependencies manually."; fi
     fi
 
-    # Final check for core dependencies
+    if [ "$should_install" = true ]; then
+        local pm_base_cmd=""
+        local needs_sudo=true
+        if command -v apt-get &>/dev/null; then pm_base_cmd="apt-get install -y";
+        elif command -v yum &>/dev/null; then pm_base_cmd="yum install -y";
+        elif command -v dnf &>/dev/null; then pm_base_cmd="dnf install -y";
+        elif command -v pacman &>/dev/null; then pm_base_cmd="pacman -S --noconfirm";
+        elif command -v brew &>/dev/null; then pm_base_cmd="brew install"; needs_sudo=false; fi
+
+        if [ -n "$pm_base_cmd" ]; then
+            local install_cmd="$pm_base_cmd ${missing_deps[*]}"
+            echo "  - Attempting to install missing dependencies..."
+            if [ "$needs_sudo" = true ] && [ "$(id -u)" -ne 0 ]; then
+                if ! command -v sudo &>/dev/null; then
+                    echo "  - Warning: 'sudo' command not found. Cannot install dependencies."
+                else
+                    if ! sudo sh -c "$install_cmd"; then
+                        echo "  - Warning: Dependency installation with sudo failed."
+                    fi
+                fi
+            else
+                if ! sh -c "$install_cmd"; then
+                    echo "  - Warning: Dependency installation failed."
+                fi
+            fi
+        else
+            echo "  - Warning: Could not detect a supported package manager. Please install dependencies manually."
+        fi
+    fi
+
+    # Final, more robust check for core dependencies
+    local still_missing_core_deps=()
     for cmd in "${core_deps[@]}"; do
         if ! command -v "$cmd" &>/dev/null; then
-            abort "Core dependency '$cmd' is still missing. Please install it and re-run this script."
+            still_missing_core_deps+=("$cmd")
         fi
     done
+
+    if [ ${#still_missing_core_deps[@]} -gt 0 ]; then
+        echo -e "\n----------------------------------------------------------------"
+        echo "!!! CORE DEPENDENCY WARNING !!!"
+        echo "The following core dependencies are still missing: ${still_missing_core_deps[*]}"
+        echo "The 'workspace' command may not function correctly without them."
+        echo "----------------------------------------------------------------"
+
+        if [ "$NON_INTERACTIVE" = false ]; then
+            read -p "Proceed with the installation anyway? [y/N] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                abort "Installation cancelled by user."
+            fi
+        else
+            echo "  - Continuing installation despite missing core dependencies (non-interactive mode)."
+        fi
+    fi
 }
+
 
 install_oh_my_bash() {
     echo -e "\n(2/5) Checking for Oh My Bash..."
@@ -116,11 +146,11 @@ setup_shell_config() {
 
 workspace() {
     local executable="$DEST_LINK"
-    local output=\$(\$executable "\$@")
+    local output=\$($executable "$@")
     local exit_code=\$?
 
     if [ \$exit_code -eq 0 ]; then
-        if [[ "\$output" == "__cd__:"* ]]; then
+        if [[ "\$output" == "__cd__:*" ]]; then
             local dir_to_change_to=\${output#__cd__:}
             if [ -d "\$dir_to_change_to" ]; then
                 cd "\$dir_to_change_to"
@@ -175,7 +205,7 @@ setup_executable() {
 
 install() {
     echo "Starting installation of the 'workspace' tool..."
-    # check_dependencies
+    check_dependencies
     install_oh_my_bash
     setup_shell_config
     update_user_profile
