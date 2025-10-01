@@ -1,8 +1,10 @@
 #!/bin/bash
 
 # This script installs or uninstalls the 'workspace' command-line tool.
+# It is designed to be portable and resilient, handling various shells
+# and package managers.
 
-set -e
+set -e # Exit on any error
 
 # --- Configuration ---
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -13,124 +15,137 @@ DEST_LINK="$BIN_DIR/workspace"
 CONFIG_DIR="$HOME/.config/workspace"
 CONFIG_SCRIPT="$CONFIG_DIR/workspace.sh"
 
-
 # --- Helper Functions ---
 
-# Abort the script with a standardized error message.
 abort() {
-  echo "Error: $1" >&2
-  exit 1
+    echo "Error: $1" >&2
+    exit 1
 }
 
-# Check for a command and provide install instructions if it's missing.
-check_command() {
-    local cmd=$1
-    local package=$2
-    if ! command -v "$cmd" &> /dev/null; then
-        # ... (error messages as before) ...
-        MISSING_DEPS=true
-    else
-        echo "  - Dependency '$cmd' is already installed."
-    fi
-}
+check_dependencies() {
+    echo "(1/4) Checking for required dependencies..."
+    local missing_deps=()
+    local commands_to_check=("git" "sqlite3" "rsync")
 
-
-# --- Uninstall Logic ---
-uninstall() {
-    echo "Starting uninstallation of the 'workspace' tool..."
-
-    # 1. Remove shell configuration
-    SOURCE_LINE="source \\"$CONFIG_SCRIPT\\""
-    for shell_file in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc"; do
-        if [ -f "$shell_file" ]; then
-            if grep -qF -- "$SOURCE_LINE" "$shell_file"; then
-                # Use sed to remove the line in-place
-                sed -i.bak "/^${SOURCE_LINE//\//\\/}$/d" "$shell_file"
-                sed -i.bak "/^# Initialize workspace tool$/d" "$shell_file"
-                echo "  - Removed configuration from $shell_file."
-            fi
+    for cmd in "${commands_to_check[@]}"; do
+        if ! command -v "$cmd" &>/dev/null; then
+            missing_deps+=("$cmd")
+        else
+            echo "  - Dependency '$cmd' is already installed."
         fi
     done
 
-    # 2. Remove the configuration directory
-    if [ -d "$CONFIG_DIR" ]; then
-        rm -rf "$CONFIG_DIR"
-        echo "  - Removed configuration directory: $CONFIG_DIR"
+    if [ ${#missing_deps[@]} -ne 0 ]; then
+        echo "Error: The following required dependencies are not installed: ${missing_deps[*]}" >&2
+        echo "Please install them using your system's package manager and re-run the script." >&2
+        
+        # Suggest installation commands for known package managers
+        if command -v apt-get &>/dev/null; then
+            echo "Suggestion for Debian/Ubuntu: sudo apt-get update && sudo apt-get install ${missing_deps[*]}" >&2
+        elif command -v yum &>/dev/null; then
+            echo "Suggestion for CentOS/RHEL: sudo yum install ${missing_deps[*]}" >&2
+        elif command -v dnf &>/dev/null; then
+            echo "Suggestion for Fedora: sudo dnf install ${missing_deps[*]}" >&2
+        elif command -v pacman &>/dev/null; then
+            echo "Suggestion for Arch Linux: sudo pacman -Syu ${missing_deps[*]}" >&2
+        elif command -v brew &>/dev/null; then
+            echo "Suggestion for macOS (Homebrew): brew install ${missing_deps[*]}" >&2
+        fi
+        exit 1
     fi
-
-    # 3. Remove the binary symlink
-    if [ -L "$DEST_LINK" ]; then
-        rm "$DEST_LINK"
-        echo "  - Removed symlink: $DEST_LINK"
-    fi
-    
-    # 4. Clean up bin directory if empty
-    if [ -d "$BIN_DIR" ] && [ -z "$(ls -A "$BIN_DIR")" ]; then
-        rmdir "$BIN_DIR"
-        echo "  - Removed empty bin directory: $BIN_DIR"
-    fi
-
-    echo -e "\\n--- Uninstallation Complete ---"
-    echo "Please restart your shell for the changes to take effect."
-    exit 0
 }
 
 
+update_shell_profile() {
+    echo "(4/4) Updating user's shell profile..."
+    
+    local shell_profile=""
+    local current_shell=$(basename "$SHELL")
+
+    if [ "$current_shell" = "bash" ]; then
+        if [ -f "$HOME/.bashrc" ]; then shell_profile="$HOME/.bashrc"; 
+        elif [ -f "$HOME/.bash_profile" ]; then shell_profile="$HOME/.bash_profile";
+        elif [ -f "$HOME/.profile" ]; then shell_profile="$HOME/.profile"; fi
+    elif [ "$current_shell" = "zsh" ] && [ -f "$HOME/.zshrc" ]; then
+        shell_profile="$HOME/.zshrc"
+    elif [ "$current_shell" = "fish" ] && [ -f "$HOME/.config/fish/config.fish" ]; then
+        shell_profile="$HOME/.config/fish/config.fish"
+    fi
+
+    SOURCE_LINE="source \"$CONFIG_SCRIPT\""
+    INIT_COMMENT="# Initialize workspace tool"
+
+    if [ -n "$shell_profile" ]; then
+        if ! grep -qF -- "$SOURCE_LINE" "$shell_profile"; then
+            echo "  - Adding configuration to $shell_profile..."
+            printf "\n%s\n%s\n" "$INIT_COMMENT" "$SOURCE_LINE" >> "$shell_profile"
+            echo "  - Successfully updated."
+        else
+            echo "  - Configuration already present in $shell_profile."
+        fi
+    else
+        echo "Warning: Could not find a standard shell profile (.bashrc, .zshrc, .profile, etc.)." >&2
+        echo "Please add the following line to your shell's startup file manually:" >&2
+        echo "    $SOURCE_LINE" >&2
+    fi
+}
+
+# --- Uninstall Logic ---
+uninstall() {
+    echo "Starting uninstallation of 'workspace' tool..."
+
+    SOURCE_LINE="source \"$CONFIG_SCRIPT\""
+    # Detect all potential shell profiles
+    for shell_file in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc" "$HOME/.profile" "$HOME/.config/fish/config.fish"; do
+        if [ -f "$shell_file" ] && grep -qF -- "$SOURCE_LINE" "$shell_file"; then
+            sed -i.bak "|${SOURCE_LINE//\//\\/}|d" "$shell_file"
+            sed -i.bak "|# Initialize workspace tool|d" "$shell_file"
+            echo "  - Removed configuration from $shell_file."
+            rm -f "${shell_file}.bak"
+        fi
+    done
+
+    if [ -d "$CONFIG_DIR" ]; then rm -rf "$CONFIG_DIR"; echo "  - Removed $CONFIG_DIR"; fi
+    if [ -L "$DEST_LINK" ]; then rm "$DEST_LINK"; echo "  - Removed $DEST_LINK"; fi
+    if [ -d "$BIN_DIR" ] && [ -z "$(ls -A "$BIN_DIR")" ]; then rmdir "$BIN_DIR"; echo "  - Removed empty $BIN_DIR"; fi
+
+    echo -e "\n--- Uninstallation Complete ---"
+    echo "Please restart your shell."
+    exit 0
+}
+
 # --- Installation Logic ---
 install() {
-    echo "Starting installation for the 'workspace' tool..."
+    echo "Starting installation of the 'workspace' tool..."
 
-    # 1. Dependency Check
-    echo -e "\\n(1/4) Checking for required dependencies..."
-    MISSING_DEPS=false
-    check_command "git" "git"
-    check_command "sqlite3" "sqlite3"
-    [ "$MISSING_DEPS" = true ] && abort "Missing required dependencies. Please install them and re-run."
+    check_dependencies
 
-    # 2. Executable Setup
-    echo -e "\\n(2/4) Setting up executable..."
+    echo -e "\n(2/4) Setting up executable..."
     mkdir -p "$BIN_DIR"
-    echo "  - Ensured directory exists: $BIN_DIR"
     chmod +x "$SRC_SCRIPT"
     ln -sf "$SRC_SCRIPT" "$DEST_LINK"
     echo "  - Linked $SRC_SCRIPT to $DEST_LINK"
 
-    # 3. Shell Configuration Script
-    echo -e "\\n(3/4) Creating shell configuration..."
+    echo -e "\n(3/4) Creating shell configuration script..."
     mkdir -p "$CONFIG_DIR"
-    echo "  - Ensured directory exists: $CONFIG_DIR"
-    
     cat << EOF > "$CONFIG_SCRIPT"
 #!/bin/sh
 # Auto-generated by the workspace installer.
-# This script adds the workspace command to your PATH.
-#
-# IMPORTANT: The path below is absolute. If you move the project
-# directory, you must re-run the installer.
 export PATH="$BIN_DIR:\$PATH"
 EOF
-    echo "  - Created configuration script: $CONFIG_SCRIPT"
+    echo "  - Created $CONFIG_SCRIPT"
 
-    # 4. Update User's Shell Profile
-    echo -e "\\n(4/4) Updating user's shell profile..."
-    
-    # ... (Shell detection logic as before) ...
-    
-    SOURCE_LINE="source \\"$CONFIG_SCRIPT\\""
-    # ... (Logic to add source line as before) ...
+    update_shell_profile
 
-    echo -e "\\n--- Installation Complete ---"
-    # ... (Instructions as before) ...
+    echo -e "\n--- Installation Complete ---"
+    echo "To finish, restart your shell or run: source \"$CONFIG_SCRIPT\""
 }
 
 # --- Main Script ---
-
-# Safety check: Do not run as root.
 if [ "$(id -u)" -eq 0 ]; then
-  abort "This script must not be run as root. Please run as your normal user."
+  abort "This script must not be run as root."
 fi
 
-# Parse command-line arguments
 if [ "$1" = "--uninstall" ]; then
     uninstall
 else
