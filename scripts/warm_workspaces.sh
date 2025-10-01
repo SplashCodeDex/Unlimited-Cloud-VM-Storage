@@ -1,50 +1,60 @@
 #!/bin/bash
 
-# This script pre-warms ephemeral workspaces by cloning the most recent projects
-# from the history file. It's intended to be run in the background on shell startup.
+# This script pre-warms ephemeral workspaces by cloning the most frecently used projects
+# from the SQLite database. It's intended to be run in the background on shell startup.
 
 set -e
 
-HISTORY_FILE="$HOME/.workspace_history"
-LOG_FILE="$HOME/.workspace_warming.log"
-# Number of recent projects to pre-warm. Let's start with 1.
-PROJECT_COUNT=1
+# --- Configuration ---
+# Get the directory of the script itself to reliably source the config
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/config.sh"
 
-echo "--- Starting workspace warming: $(date) --- " > "$LOG_FILE"
+# --- Main Logic ---
+echo "--- Starting workspace warming: $(date) --- " > "$WARMING_LOG_FILE"
 
-if [ ! -f "$HISTORY_FILE" ]; then
-    echo "No history file found. Exiting." >> "$LOG_FILE"
-    # No history, nothing to do.
+# Check for dependencies
+if ! command -v sqlite3 &> /dev/null; then
+    echo "Error: sqlite3 is not installed. Cannot warm workspaces." >> "$WARMING_LOG_FILE"
+    exit 1
+fi
+
+if [ ! -f "$DB_FILE" ]; then
+    echo "No history database found at $DB_FILE. Exiting." >> "$WARMING_LOG_FILE"
     exit 0
 fi
 
-# Use a while loop to safely read the tab-separated file
-head -n "$PROJECT_COUNT" "$HISTORY_FILE" | while IFS=$'\t' read -r git_url project_path;
-    # Perform checks in the main loop process before backgrounding the clone.
-    do
-        if [ -z "$git_url" ] || [ -z "$project_path" ] || [[ "$git_url" == "none" ]]; then
-            # Malformed line or not a git repo, skip.
-            continue
-        fi
+# Query the database for the top N frecent workspaces with valid git URLs
+sqlite3 -separator '|' "$DB_FILE" \
+    "SELECT git_url, path FROM workspaces WHERE git_url != 'none' ORDER BY (frequency / (strftime('%s','now') - last_access + 1)) DESC, last_access DESC LIMIT $WARMING_PROJECT_COUNT;" | \
+while IFS='|' read -r git_url project_path; do
+    # Perform checks before backgrounding the clone.
+    if [ -z "$git_url" ] || [ -z "$project_path" ]; then
+        echo "Skipping malformed entry from database..." >> "$WARMING_LOG_FILE"
+        continue
+    fi
 
-        if [ -d "$project_path" ]; then
-            # Workspace already exists, skip.
-            continue
-        fi
+    if [ -d "$project_path" ]; then
+        echo "Workspace at '$project_path' already exists. Skipping warm-up." >> "$WARMING_LOG_FILE"
+        continue
+    fi
 
-        # Run only the clone operation in a background subshell.
-        (
-            echo "Pre-warming workspace: $project_path"
-            # Clone quietly to not pollute the user's main shell with output
-            if git clone --quiet "$git_url" "$project_path"; then
-                echo "Pre-warming for '$project_path' complete."
-            else
-                echo "Pre-warming for '$project_path' failed."
-                # If it failed, remove the potentially incomplete directory
-                rm -rf "$project_path"
-            fi
-        ) >> "$LOG_FILE" 2>&1 &
-    done
+    # Run the clone operation in a background subshell for concurrency.
+    (
+        echo "Pre-warming workspace: $project_path from $git_url"
+        # Clone quietly to not pollute the user's main shell with output
+        if git clone --quiet "$git_url" "$project_path"; then
+            echo "Pre-warming for '$project_path' complete."
+        else
+            echo "Pre-warming for '$project_path' failed."
+            # If it failed, remove the potentially incomplete directory
+            rm -rf "$project_path"
+        fi
+    ) >> "$WARMING_LOG_FILE" 2>&1 &
+
+done
 
 # Wait for all background clone jobs to finish before the script exits.
 wait
+
+echo "--- Workspace warming finished: $(date) --- " >> "$WARMING_LOG_FILE"

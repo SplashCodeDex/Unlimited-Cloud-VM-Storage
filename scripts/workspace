@@ -1,0 +1,271 @@
+#!/bin/bash
+# Enhanced script to create, list, and switch ephemeral workspaces.
+
+set -e # Exit immediately if a command exits with a non-zero status.
+
+# --- Configuration ---
+# Get the directory of the script itself
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Source the shared configuration
+source "$SCRIPT_DIR/config.sh"
+
+# --- Derived Configurations ---
+DETECTORS_DIR="$SCRIPT_DIR/detectors"
+# Construct the absolute path to the workspace configs file from the project root
+PROJECT_ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+CONFIG_FILE_PATH="$PROJECT_ROOT_DIR/$WORKSPACE_CONFIGS_FILE"
+
+# --- Helper Functions ---
+_link_configs() {
+    local project_path="$1"
+    if [ ! -d "$project_path" ]; then return; fi
+
+    if [ ! -f "$CONFIG_FILE_PATH" ]; then
+        echo "Warning: Configuration file not found at $CONFIG_FILE_PATH" >&2
+        return
+    fi
+
+    echo "Linking configurations from $CONFIG_FILE_PATH..." >&2
+    while IFS= read -r item || [[ -n "$item" ]]; do
+        # Skip comments and empty lines
+        if [[ "$item" =~ ^\s*# ]] || [ -z "$item" ]; then continue; fi
+
+        local source_path="$HOME/$item"
+        local link_path="$project_path/$(basename "$item")"
+
+        if [ -e "$source_path" ] && [ ! -L "$link_path" ]; then
+            ln -s "$source_path" "$link_path"
+            echo "  - Linked ~/$item" >&2
+        fi
+    done < "$CONFIG_FILE_PATH"
+}
+
+_symlink_artifacts() {
+    local project_path="$1"
+    local project_name="$2"
+    local ephemeral_project_cache_dir="$EPHEMERAL_CACHE_DIR/$project_name"
+    
+    echo "Checking for heavy artifacts to symlink to ephemeral storage..." >&2
+
+    # --- Smart Detection & Override Logic ---
+    local auto_detected_dirs=()
+
+    # --- Run Detectors ---
+    if [ -d "$DETECTORS_DIR" ]; then
+        for detector in "$DETECTORS_DIR"/*.sh; do
+            if [ -f "$detector" ] && [ -x "$detector" ]; then
+                # Pass the project path to the detector and append the results
+                detected=$(bash "$detector" "$project_path")
+                auto_detected_dirs+=($detected)
+            fi
+        done
+    fi
+
+    local manual_dirs=()
+    local override_file="$project_path/.workspace_symlinks"
+    if [ -f "$override_file" ]; then
+        echo "  - Found override file: .workspace_symlinks" >&2
+        while IFS= read -r line; do [[ "$line" =~ ^\s*# ]] || [ -z "$line" ] && continue; manual_dirs+=("$line"); done < "$override_file"
+    fi
+
+    # --- Dynamic Discovery of Large, Untracked Dirs ---
+    local candidate_dirs=()
+    if [ -d "$project_path/.git" ]; then
+        echo "  - Scanning for large, untracked directories..." >&2
+        for dir in "$project_path"/*/; do
+            dir_name=$(basename "$dir")
+            # Skip if already in a list, or if it's a dot-directory
+            if [[ " ${auto_detected_dirs[@]} " =~ " ${dir_name} " ]] || [[ " ${manual_dirs[@]} " =~ " ${dir_name} " ]] || [[ "$dir_name" == .* ]]; then continue; fi
+            
+            # Check if directory is tracked by Git
+            if ! git -C "$project_path" ls-files --error-unmatch "$dir_name" &>/dev/null; then
+                dir_size_kb=$(du -sk "$dir" | cut -f1)
+                if [ "$dir_size_kb" -gt "$LARGE_DIR_THRESHOLD_KB" ]; then
+                    candidate_dirs+=("$dir_name")
+                fi
+            fi
+        done
+    fi
+
+    if [ ${#candidate_dirs[@]} -gt 0 ]; then
+        echo "  - Found large untracked directories: ${candidate_dirs[*]}" >&2
+        read -p "    Move them to ephemeral storage? [y/N] " -n 1 -r
+        echo >&2
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            manual_dirs+=("${candidate_dirs[@]}")
+        fi
+    fi
+
+    local final_dirs_to_process=$(echo "${auto_detected_dirs[@]} ${manual_dirs[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+
+    if [ -z "$final_dirs_to_process" ]; then echo "  - No artifact directories to process." >&2; return; fi
+
+    # --- Symlinking Execution ---
+    for dir_name in $final_dirs_to_process; do
+        local project_artifact_path="$project_path/$dir_name"
+        local cache_target_path="$ephemeral_project_cache_dir/$dir_name"
+        
+        mkdir -p "$cache_target_path"
+
+        if [ -d "$project_artifact_path" ] && [ ! -L "$project_artifact_path" ]; then
+            echo "  - Migrating '$dir_name' to ephemeral storage..." >&2
+            # More robust: Copy first, then remove on success.
+            if rsync -av "$project_artifact_path/" "$cache_target_path/"; then
+                rm -rf "$project_artifact_path"
+            else
+                echo "    Error: rsync failed for '$dir_name'. Original directory left untouched." >&2
+                continue
+            fi
+        fi
+        
+        if [ ! -d "$project_artifact_path" ]; then rm -f "$project_artifact_path"; fi
+        if [ ! -e "$project_artifact_path" ]; then
+            ln -s "$cache_target_path" "$project_artifact_path"
+            echo "  - Symlinked '$dir_name' to ephemeral cache." >&2
+        fi
+    done
+}
+
+init_database() {
+    if ! command -v sqlite3 &> /dev/null; then echo "Error: sqlite3 is not installed." >&2; exit 1; fi
+    if [ ! -f "$DB_FILE" ]; then
+        echo "Creating new workspace history database at $DB_FILE..." >&2
+        sqlite3 "$DB_FILE" "CREATE TABLE workspaces (path TEXT PRIMARY KEY, git_url TEXT, last_access INTEGER, frequency INTEGER DEFAULT 1);"
+    fi
+}
+
+_update_history() {
+    local git_url="$1"; local project_path="$2"; local current_time=$(date +%s)
+    local existing_entry=$(sqlite3 "$DB_FILE" "SELECT path FROM workspaces WHERE path='$project_path';")
+    if [ -z "$existing_entry" ]; then
+        sqlite3 "$DB_FILE" "INSERT INTO workspaces (path, git_url, last_access, frequency) VALUES ('$project_path', '$git_url', $current_time, 1);"
+    else
+        sqlite3 "$DB_FILE" "UPDATE workspaces SET last_access=$current_time, frequency=frequency+1 WHERE path='$project_path';"
+    fi
+}
+
+_handle_interactive_selection() {
+    if [ ! -f "$DB_FILE" ]; then
+        echo "No workspaces in history. Create one with 'workspace <git_repo_url_or_name>'." >&2
+        exit 0
+    fi
+    echo "Recent workspaces (ranked by frecency):" >&2
+    local i=1; local paths=()
+    while IFS='|' read -r path; do
+        local project_name=$(basename "$path"); local status="[ ]"; if [ -d "$path" ]; then status="[✓]"; fi
+        printf "  %2d: %s %s\n" "$i" "$status" "$project_name" >&2; paths[$i]="$path"; i=$((i+1))
+    done < <(sqlite3 -separator '|' "$DB_FILE" "SELECT path FROM workspaces ORDER BY (frequency / (strftime('%s','now') - last_access + 1)) DESC, last_access DESC LIMIT 10;")
+    
+    echo "Enter a number to switch to a workspace, or any other key to cancel." >&2
+    # The `|| true` is critical in a `set -e` script to prevent exiting when `read` fails on EOF (e.g. from a pipe)
+    read -p "> " -n 1 -r choice || true; echo >&2
+    
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ -n "${paths[$choice]}" ]; then
+        local project_path_to_enter="${paths[$choice]}"
+        local project_name=$(basename "$project_path_to_enter")
+        _symlink_artifacts "$project_path_to_enter" "$project_name"
+        _link_configs "$project_path_to_enter"
+        _update_history "" "$project_path_to_enter"
+        echo "$project_path_to_enter"
+    else
+        echo "Cancelled." >&2
+        exit 0
+    fi
+}
+
+_handle_numeric_selection() {
+    local choice="$1"
+    if [ ! -f "$DB_FILE" ]; then exit 1; fi
+    
+    local path_to_enter=$(sqlite3 "$DB_FILE" "SELECT path FROM workspaces ORDER BY (frequency / (strftime('%s','now') - last_access + 1)) DESC, last_access DESC LIMIT 1 OFFSET (($choice - 1));")
+    
+    if [ -z "$path_to_enter" ]; then
+        echo "Error: Invalid selection." >&2
+        exit 1
+    fi
+    
+    local project_name=$(basename "$path_to_enter")
+    _symlink_artifacts "$path_to_enter" "$project_name"
+    _link_configs "$path_to_enter"
+    _update_history "" "$path_to_enter"
+    echo "$path_to_enter"
+}
+
+_handle_project_creation_or_opening() {
+    local INPUT="$1"
+    local PROJECT_NAME
+    local IS_GIT_REPO=false
+
+    # Determine if input is a git repo URL
+    if [[ "$INPUT" == *git@* || "$INPUT" == *.git* || "$INPUT" == *http* ]]; then
+        PROJECT_NAME=$(basename "$INPUT" .git)
+        IS_GIT_REPO=true
+    else
+        PROJECT_NAME="$INPUT"
+    fi
+
+    local SANITIZED_NAME=$(echo "$PROJECT_NAME" | sed 's/[^a-zA-Z0-9_-]//g')
+    if [ -z "$SANITIZED_NAME" ]; then
+        echo "Error: Project name is invalid." >&2
+        exit 1
+    fi
+    
+    local PROJECT_PATH="$WORKSPACE_BASE_DIR/$SANITIZED_NAME"
+
+    # Create workspace if it doesn't exist
+    if [ -d "$PROJECT_PATH" ] && [ "$(ls -A "$PROJECT_PATH")" ]; then
+        echo "Workspace '$SANITIZED_NAME' already exists." >&2
+    else
+        if [ "$IS_GIT_REPO" = true ]; then
+            echo "Cloning '$INPUT' into '$PROJECT_PATH'..." >&2
+            if ! git clone "$INPUT" "$PROJECT_PATH"; then
+                echo "Error: Failed to clone." >&2
+                exit 1
+            fi
+        else
+            echo "Creating new empty workspace '$PROJECT_PATH'..." >&2
+            mkdir -p "$PROJECT_PATH"
+        fi
+    fi
+
+    # Post-creation/opening setup
+    _symlink_artifacts "$PROJECT_PATH" "$SANITIZED_NAME"
+    _link_configs "$PROJECT_PATH"
+    
+    local GIT_URL="none"
+    if [ -d "$PROJECT_PATH/.git" ]; then
+        GIT_URL=$(git -C "$PROJECT_PATH" config --get remote.origin.url)
+        # Convert to SSH for warming if it's a GitHub HTTPS URL
+        if [[ "$GIT_URL" == https://github.com/* ]]; then
+            local SSH_URL=$(echo "$GIT_URL" | sed 's|https://github.com/|git@github.com:|')
+            echo "Converting clone URL to SSH for background warming: $SSH_URL" >&2
+            GIT_URL="$SSH_URL"
+        fi
+    fi
+    
+    _update_history "$GIT_URL" "$PROJECT_PATH"
+    echo "$PROJECT_PATH"
+}
+
+main() {
+    # Basic argument parsing for now.
+    # This will be expanded later to support commands like 'list', 'clean', etc.
+    if [[ "$1" == -* ]]; then
+        echo "Error: Unknown option '$1'" >&2
+        exit 1
+    fi
+
+    init_database
+    if ! command -v git &> /dev/null; then echo "Error: git is not installed." >&2; exit 1; fi
+    mkdir -p "$WORKSPACE_BASE_DIR"
+
+    if [[ -z "$1" ]]; then
+        _handle_interactive_selection
+    elif [[ "$1" =~ ^[0-9]+$ ]]; then
+        _handle_numeric_selection "$1"
+    else
+        _handle_project_creation_or_opening "$1"
+    fi
+}
+
+main "$@"
