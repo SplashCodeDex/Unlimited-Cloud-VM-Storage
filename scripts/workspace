@@ -212,10 +212,21 @@ _handle_project_creation_or_opening() {
     
     local PROJECT_PATH="$WORKSPACE_BASE_DIR/$SANITIZED_NAME"
 
+    # Conflict resolution: user wants a git repo, but a non-git directory exists.
+    if [ "$IS_GIT_REPO" = true ] && [ -d "$PROJECT_PATH" ] && [ ! -d "$PROJECT_PATH/.git" ]; then
+        echo "Warning: A non-Git workspace named '$SANITIZED_NAME' already exists." >&2
+        read -p "Do you want to replace it by cloning '$INPUT'? [y/N] " -n 1 -r
+        echo >&2
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            echo "  - Removing existing directory." >&2
+            rm -rf "$PROJECT_PATH"
+        else
+            echo "  - Operation cancelled. Opening existing workspace." >&2
+        fi
+    fi
+
     # Create workspace if it doesn't exist
-    if [ -d "$PROJECT_PATH" ] && [ "$(ls -A "$PROJECT_PATH")" ]; then
-        echo "Workspace '$SANITIZED_NAME' already exists." >&2
-    else
+    if [ ! -d "$PROJECT_PATH" ]; then
         if [ "$IS_GIT_REPO" = true ]; then
             echo "Cloning '$INPUT' into '$PROJECT_PATH'..." >&2
             if ! git clone "$INPUT" "$PROJECT_PATH"; then
@@ -226,6 +237,8 @@ _handle_project_creation_or_opening() {
             echo "Creating new empty workspace '$PROJECT_PATH'..." >&2
             mkdir -p "$PROJECT_PATH"
         fi
+    else
+        echo "Workspace '$SANITIZED_NAME' already exists." >&2
     fi
 
     # Post-creation/opening setup
