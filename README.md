@@ -34,7 +34,7 @@
 | **🌐 Platform Agnostic** | Excels in any modern, cloud-based development environment, including GitHub Codespaces, Google Cloud Shell, Firebase, Gitpod, AWS Cloud9, and any other remote VM. |
 | **📌 Pinned Projects** | Pin your most important projects to keep them at the top of the list and ensure they are always "warm" (pre-cloned and ready to go) in the background. |
 | **✅ Git-Aware Health** | Provides a "health check" that warns you about uncommitted changes or if your local branch is behind the remote, preventing you from losing work. |
-| **🚀 Simple & Portable** | A single, portable shell script with minimal, common dependencies (`git` and `sqlite3`). The robust installer makes it simple to get started and to remove. |
+| **🚀 Simple & Portable** | A single, portable shell script with minimal, common dependencies. The robust installer handles dependency checks and integrates with your shell, while the uninstaller ensures a clean removal. |
 | **🧪 Automated Testing** | A full suite of tests ensures the stability and reliability of the project as it grows, guaranteeing that new features don't break existing functionality. |
 
 ---
@@ -108,7 +108,6 @@ Output:
 We're just getting started. Our vision is to make `workspace` an indispensable part of the modern development workflow. Here's what we're thinking about for the future:
 
 - [ ] **Workspace Templates:** Quickly start new projects (e.g., `workspace new --template=react-vite`) with pre-configured boilerplate.
-- [ ] **Deeper Cloud Integration:** Add commands for provisioning and de-provisioning cloud resources tied to a workspace.
 - [ ] **VS Code Extension:** A graphical user interface within your favorite editor to manage your workspaces.
 
 Have an idea? We'd love to hear it!
