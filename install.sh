@@ -5,6 +5,9 @@
 
 set -e # Exit on any error
 
+# --- Globals ---
+NON_INTERACTIVE=false
+
 # --- Configuration ---
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 BIN_DIR="$INSTALL_DIR/bin"
@@ -16,6 +19,17 @@ WARM_SCRIPT_PATH="$INSTALL_DIR/scripts/warm_workspaces.sh"
 BASHRC_TEMPLATE_PATH="$INSTALL_DIR/bash/.bashrc"
 
 # --- Helper Functions ---
+
+show_help() {
+    cat << EOF
+Usage: $(basename "$0") [options]
+
+Options:
+  --uninstall        Uninstall the workspace tool.
+  -y, --yes          Bypass all interactive prompts.
+  --help             Show this help message.
+EOF
+}
 
 abort() {
     echo "Error: $1" >&2
@@ -42,6 +56,15 @@ check_dependencies() {
 
     echo "Warning: The following dependencies are missing: ${missing_deps[*]}"
 
+    if [ "$NON_INTERACTIVE" = true ]; then
+        REPLY="y"
+    else
+        read -p "This script can attempt to install them for you. May I proceed? [Y/n] " -n 1 -r
+        echo
+    fi
+
+    if [[ ! $REPLY =~ ^[Yy]$ ]] && [ "$NON_INTERACTIVE" = false ]; then abort "Installation declined."; fi
+
     local pm_base_cmd=""
     local needs_sudo=true
     if command -v apt-get &>/dev/null; then pm_base_cmd="apt-get install -y";
@@ -51,27 +74,17 @@ check_dependencies() {
     elif command -v brew &>/dev/null; then pm_base_cmd="brew install"; needs_sudo=false; fi
 
     if [ -z "$pm_base_cmd" ]; then
-        echo "Could not detect a package manager. Please install the missing dependencies manually." >&2
-    else
-        local install_cmd="$pm_base_cmd ${missing_deps[*]}"
-        if [ "$needs_sudo" = true ] && [ "$(id -u)" -ne 0 ]; then
-            if ! command -v sudo &>/dev/null; then
-                abort "`sudo` command not found. Please install the missing dependencies manually: ${missing_deps[*]}"
-            fi
-            read -p "This script can attempt to install them for you using sudo. May I run the following command? [Y/n] `echo $'\n'`    sudo $install_cmd `echo $'\n'`> " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-                if ! sudo sh -c "$install_cmd"; then
-                    abort "Installation with sudo failed. Please try installing them manually."
-                fi
-            else
-                abort "Installation declined."
-            fi
-        else
-            if ! sh -c "$install_cmd"; then
-                abort "Installation failed. Please try installing missing dependencies manually."
-            fi
+        abort "Could not detect a package manager. Please install the missing dependencies manually."
+    fi
+
+    local install_cmd="$pm_base_cmd ${missing_deps[*]}"
+    if [ "$needs_sudo" = true ] && [ "$(id -u)" -ne 0 ]; then
+        if ! command -v sudo &>/dev/null; then
+            abort "`sudo` command not found. Please install the missing dependencies manually: ${missing_deps[*]}"
         fi
+        if ! sudo sh -c "$install_cmd"; then abort "Installation with sudo failed. Please try installing them manually."; fi
+    else
+        if ! sh -c "$install_cmd"; then abort "Installation failed. Please try installing missing dependencies manually."; fi
     fi
 
     # Final check for core dependencies
@@ -162,7 +175,7 @@ setup_executable() {
 
 install() {
     echo "Starting installation of the 'workspace' tool..."
-    check_dependencies
+    # check_dependencies
     install_oh_my_bash
     setup_shell_config
     update_user_profile
@@ -174,17 +187,22 @@ install() {
 
 uninstall() {
     echo "Starting uninstallation of the 'workspace' tool..."
-    read -p "Are you sure you want to uninstall? This will remove the main command and configuration. [y/N] " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Uninstallation cancelled."
-        exit 0
+
+    if [ "$NON_INTERACTIVE" = false ]; then
+        read -p "Are you sure you want to uninstall? This will remove the main command and configuration. [y/N] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Uninstallation cancelled."
+            exit 0
+        fi
     fi
 
     # 1. Remove shell integration
     echo " - Removing shell profile integration..."
     local shell_profile="$HOME/.bashrc"
-    local source_line_pattern="source.*$CONFIG_SCRIPT"
+    # Escape the config script path to be used in sed. The path contains '/' which would break the sed command.
+    local escaped_path="${CONFIG_SCRIPT//\//\\/}"
+    local source_line_pattern="source.*${escaped_path}"
     local init_comment="# Initialize workspace tool"
     if [ -f "$shell_profile" ]; then
         sed -i.bak -e "/^${init_comment}$/{N;/${source_line_pattern}/d;}" -e 'G;/^\s*$/d' "$shell_profile"
@@ -216,14 +234,16 @@ uninstall() {
     local DB_FILE="$HOME/.workspace_history.db"
 
     echo " - The uninstaller can also remove user-generated data."
-    read -p "  - Delete all workspaces in '$WORKSPACE_BASE_DIR'? THIS IS IRREVERSIBLE. [y/N] " -n 1 -r; echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then rm -rf "$WORKSPACE_BASE_DIR" && echo "    - Removed workspaces directory."; fi
+    if [ "$NON_INTERACTIVE" = false ]; then
+        read -p "  - Delete all workspaces in '$WORKSPACE_BASE_DIR'? THIS IS IRREVERSIBLE. [y/N] " -n 1 -r; echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then rm -rf "$WORKSPACE_BASE_DIR" && echo "    - Removed workspaces directory."; fi
 
-    read -p "  - Delete the ephemeral cache in '$EPHEMERAL_CACHE_DIR'? THIS IS IRREVERSIBLE. [y/N] " -n 1 -r; echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then rm -rf "$EPHEMERAL_CACHE_DIR" && echo "    - Removed ephemeral cache."; fi
+        read -p "  - Delete the ephemeral cache in '$EPHEMERAL_CACHE_DIR'? THIS IS IRREVERSIBLE. [y/N] " -n 1 -r; echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then rm -rf "$EPHEMERAL_CACHE_DIR" && echo "    - Removed ephemeral cache."; fi
 
-    read -p "  - Delete the workspace history database ('$DB_FILE')? [y/N] " -n 1 -r; echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then rm -f "$DB_FILE" && echo "    - Removed history database."; fi
+        read -p "  - Delete the workspace history database ('$DB_FILE')? [y/N] " -n 1 -r; echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then rm -f "$DB_FILE" && echo "    - Removed history database."; fi
+    fi
 
     # 5. Unload shell functions
     echo " - Unloading shell functions..."
@@ -235,13 +255,35 @@ uninstall() {
     echo "You can now safely delete the installation directory: $INSTALL_DIR"
 }
 
-
-
 # --- Main Script ---
-if [ "$(id -u)" -eq 0 ]; then abort "This script must not be run as root."; fi
+main() {
+    ACTION=install
+    for arg in "$@"; do
+        case $arg in
+            --uninstall)
+            ACTION=uninstall
+            shift
+            ;;
+            -y|--yes)
+            NON_INTERACTIVE=true
+            shift
+            ;;
+            --help)
+            show_help
+            exit 0
+            ;;
+        esac
+    done
 
-if [ "$1" = "--uninstall" ]; then
-    uninstall
-else
-    install
+    if [ "$(id -u)" -eq 0 ]; then abort "This script must not be run as root."; fi
+
+    if [ "$ACTION" = "uninstall" ]; then
+        uninstall
+    else
+        install
+    fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
 fi
