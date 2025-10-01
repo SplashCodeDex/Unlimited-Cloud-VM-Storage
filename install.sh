@@ -26,9 +26,10 @@ check_dependencies() {
     echo "(1/5) Checking for dependencies..."
     local core_deps=("git" "sqlite3" "rsync")
     local optional_deps=("fzf" "autojump")
+    local all_deps=("${core_deps[@]}" "${optional_deps[@]}")
     local missing_deps=()
 
-    for cmd in "${core_deps[@]}" "${optional_deps[@]}"; do
+    for cmd in "${all_deps[@]}"; do
         if ! command -v "$cmd" &>/dev/null; then
             missing_deps+=("$cmd")
         fi
@@ -52,46 +53,34 @@ check_dependencies() {
     if [ -z "$pm_base_cmd" ]; then
         echo "Could not detect a package manager. Please install the missing dependencies manually." >&2
     else
-        echo "Attempting to install dependencies without sudo..."
-        if ! sh -c "$pm_base_cmd ${missing_deps[*]}" 2>/dev/null; then
-            echo "  - Failed. Checking for sudo..."
-            if [ "$needs_sudo" = false ]; then
-                 echo "Installation failed. Please try installing missing dependencies manually." >&2
-            elif ! command -v sudo &>/dev/null; then
-                echo "`sudo` command not found. Please install the missing dependencies manually." >&2
-            else
-                local install_command_with_sudo="sudo $pm_base_cmd ${missing_deps[*]}"
-                echo "This script can attempt to install them for you using sudo." >&2
-                read -p "May I run the following command? [Y/n] `echo $'\n'`    $install_command_with_sudo `echo $'\n'`> " -n 1 -r
-                echo
-
-                if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-                    echo "Attempting to install dependencies with sudo..."
-                    if ! sh -c "$install_command_with_sudo"; then
-                        echo "Installation with sudo failed. Please try installing them manually." >&2
-                    fi
-                else
-                     echo "Installation declined." >&2
+        local install_cmd="$pm_base_cmd ${missing_deps[*]}"
+        if [ "$needs_sudo" = true ] && [ "$(id -u)" -ne 0 ]; then
+            if ! command -v sudo &>/dev/null; then
+                abort "`sudo` command not found. Please install the missing dependencies manually: ${missing_deps[*]}"
+            fi
+            read -p "This script can attempt to install them for you using sudo. May I run the following command? [Y/n] `echo $'\n'`    sudo $install_cmd `echo $'\n'`> " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
+                if ! sudo sh -c "$install_cmd"; then
+                    abort "Installation with sudo failed. Please try installing them manually."
                 fi
+            else
+                abort "Installation declined."
             fi
         else
-            echo "  - Success!"
+            if ! sh -c "$install_cmd"; then
+                abort "Installation failed. Please try installing missing dependencies manually."
+            fi
         fi
     fi
 
     # Final check for core dependencies
-    local still_missing_core=()
     for cmd in "${core_deps[@]}"; do
         if ! command -v "$cmd" &>/dev/null; then
-            still_missing_core+=("$cmd")
+            abort "Core dependency '$cmd' is still missing. Please install it and re-run this script."
         fi
     done
-
-    if [ ${#still_missing_core[@]} -ne 0 ]; then
-        abort "Core dependencies (${still_missing_core[*]}) are required. Please install them and re-run this script."
-    fi
 }
-
 
 install_oh_my_bash() {
     echo -e "\n(2/5) Checking for Oh My Bash..."
