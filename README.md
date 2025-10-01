@@ -57,9 +57,19 @@ cd Unlimited-Cloud-VM-Storage
 source ~/.bashrc  # or ~/.zshrc, ~/.bash_profile
 ```
 
+The installer is designed to be robust and resilient. It will:
+
+*   **Check for dependencies** and offer to install them for you.
+*   **Create a clean, isolated environment** for the `workspace` tool.
+*   **Integrate with your shell** for a seamless experience.
+
 ### Uninstallation
 
-We believe a great tool should be as easy to remove as it is to install.
+We believe a great tool should be as easy to remove as it is to install. The uninstaller will:
+
+*   **Remove all traces of the tool** from your system.
+*   **Cleanly unload the shell function**, making the removal immediate.
+*   **Optionally remove all user data**, including your workspace history and cached repositories.
 
 ```bash
 # Navigate to the project directory and run the installer with the --uninstall flag
