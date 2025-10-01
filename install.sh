@@ -198,9 +198,7 @@ uninstall() {
     local source_line_pattern="source.*$CONFIG_SCRIPT"
     local init_comment="# Initialize workspace tool"
     if [ -f "$shell_profile" ]; then
-        sed -i.bak -e "/^${init_comment}$/{N;/${source_line_pattern}/d;}" "$shell_profile"
-        # Clean up empty lines that might be left
-        sed -i.bak 'G;/^\s*$/d' "$shell_profile"
+        sed -i.bak -e "/^${init_comment}$/{N;/${source_line_pattern}/d;}" -e 'G;/^\s*$/d' "$shell_profile"
         rm -f "${shell_profile}.bak"
         echo "  - Removed integration from $shell_profile."
     fi
@@ -238,10 +236,17 @@ uninstall() {
     read -p "  - Delete the workspace history database ('$DB_FILE')? [y/N] " -n 1 -r; echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then rm -f "$DB_FILE" && echo "    - Removed history database."; fi
 
+    # 5. Unload shell functions
+    echo " - Unloading shell functions..."
+    unset -f workspace
+    unset -f _warm_workspaces
+
     echo -e "\n--- Uninstallation Complete ---"
     echo "Please run 'source ~/.bashrc' to finalize the process."
     echo "You can now safely delete the installation directory: $INSTALL_DIR"
 }
+
+
 
 # --- Main Script ---
 if [ "$(id -u)" -eq 0 ]; then abort "This script must not be run as root."; fi
