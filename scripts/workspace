@@ -53,6 +53,10 @@ _link_configs() {
     while IFS= read -r item || [[ -n "$item" ]]; do
         # Skip comments and empty lines
         if [[ "$item" =~ ^\s*# ]] || [ -z "$item" ]; then continue; fi
+
+        # Skip shell-specific files, they are handled separately.
+        if [[ "$item" == ".bashrc" || "$item" == ".profile" || "$item" == ".zshrc" || "$item" == ".zprofile" ]]; then continue; fi
+
         local source_path="$HOME/$item"
         local link_path="$project_path/$(basename "$item")"
         if [ -e "$source_path" ] && [ ! -L "$link_path" ]; then

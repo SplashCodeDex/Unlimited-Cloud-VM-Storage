@@ -4,3 +4,4 @@
 .yarnrc
 .gcloud
 .config/gcloud
+.bashrc

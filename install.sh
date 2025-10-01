@@ -16,7 +16,6 @@ DEST_LINK="$BIN_DIR/workspace"
 CONFIG_DIR="$HOME/.config/workspace"
 CONFIG_SCRIPT="$CONFIG_DIR/workspace.sh"
 WARM_SCRIPT_PATH="$INSTALL_DIR/scripts/warm_workspaces.sh"
-BASHRC_TEMPLATE_PATH="$INSTALL_DIR/bash/.bashrc"
 
 # --- Helper Functions ---
 
@@ -106,34 +105,37 @@ check_dependencies() {
     done
 
     if [ ${#still_missing_core_deps[@]} -gt 0 ]; then
-        echo -e "\n----------------------------------------------------------------"
-        echo "!!! CORE DEPENDENCY WARNING !!!"
-        echo "The following core dependencies are still missing: ${still_missing_core_deps[*]}"
-        echo "The 'workspace' command may not function correctly without them."
-        echo "----------------------------------------------------------------"
-
-        if [ "$NON_INTERACTIVE" = false ]; then
-            read -p "Proceed with the installation anyway? [y/N] " -n 1 -r
-            echo
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                abort "Installation cancelled by user."
-            fi
-        else
-            echo "  - Continuing installation despite missing core dependencies (non-interactive mode)."
-        fi
+        abort "The following core dependencies are still missing: ${still_missing_core_deps[*]}. Please install them and run this script again."
     fi
 }
 
-
-install_oh_my_bash() {
-    echo -e "\n(2/5) Checking for Oh My Bash..."
-    if [ ! -d "$HOME/.oh-my-bash" ]; then
-        echo "  - Oh My Bash not found. Cloning..."
-        if ! git clone https://github.com/ohmybash/oh-my-bash.git "$HOME/.oh-my-bash"; then
-            abort "Failed to clone Oh My Bash."
+install_oh_my_shell() {
+    local shell_name=$(basename "$SHELL")
+    echo -e "\n(2/5) Checking for Oh My $shell_name..."
+    if [ "$shell_name" = "bash" ]; then
+        if [ ! -d "$HOME/.oh-my-bash" ]; then
+            echo "  - Oh My Bash not found. Cloning..."
+            if ! git clone https://github.com/ohmybash/oh-my-bash.git "$HOME/.oh-my-bash"; then
+                abort "Failed to clone Oh My Bash."
+            fi
+        else
+            echo "  - Oh My Bash is already installed."
+        fi
+    elif [ "$shell_name" = "zsh" ]; then
+        if [ ! -d "$HOME/.oh-my-zsh" ]; then
+            echo "  - Oh My Zsh not found. It is recommended to install it for the best experience."
+            if [ "$NON_INTERACTIVE" = false ]; then
+                read -p "Do you want to install Oh My Zsh now? [Y/n] " -n 1 -r
+                echo
+                if [[ $REPLY =~ ^[Yy]$ ]]; then
+                    sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+                fi
+            fi
+        else
+            echo "  - Oh My Zsh is already installed."
         fi
     else
-        echo "  - Oh My Bash is already installed."
+        echo "  - Skipping Oh My Shell installation for unsupported shell: $shell_name"
     fi
 }
 
@@ -154,6 +156,12 @@ workspace() {
             local dir_to_change_to=\${output#__cd__:}
             if [ -d "\$dir_to_change_to" ]; then
                 cd "\$dir_to_change_to"
+                # Smartly source project-specific shell config
+                if [ -f ".bashrc" ]; then
+                    source .bashrc
+                elif [ -f ".zshrc" ]; then
+                    source .zshrc
+                fi
             else
                 echo "Error: Target directory '\$dir_to_change_to' does not exist." >&2
             fi
@@ -176,21 +184,53 @@ EOF
 
 update_user_profile() {
     echo -e "\n(4/5) Updating user's shell profile..."
-    local shell_profile="$HOME/.bashrc"
-    local source_line="source \"$CONFIG_SCRIPT\""
-    local init_comment="# Initialize workspace tool"
+    local shell_name=$(basename "$SHELL")
+    local profile_files=()
 
-    if [ ! -f "$shell_profile" ] && [ -f "$BASHRC_TEMPLATE_PATH" ]; then
-        echo "  - No .bashrc found. Copying pre-configured template..."
-        cp "$BASHRC_TEMPLATE_PATH" "$shell_profile"
-        sed -i.bak 's|bash \"$HOME/dotfiles/scripts/warm_workspaces.sh\" &|_warm_workspaces &|' "$shell_profile"
-        rm -f "${shell_profile}.bak"
+    if [ "$shell_name" = "bash" ]; then
+        if [ -f "$HOME/.bash_profile" ]; then
+            profile_files+=("$HOME/.bash_profile")
+        elif [ -f "$HOME/.bash_login" ]; then
+            profile_files+=("$HOME/.bash_login")
+        elif [ -f "$HOME/.profile" ]; then
+            profile_files+=("$HOME/.profile")
+        fi
+        if [ -f "$HOME/.bashrc" ]; then
+            profile_files+=("$HOME/.bashrc")
+        fi
+    elif [ "$shell_name" = "zsh" ]; then
+        if [ -f "$HOME/.zshrc" ]; then
+            profile_files+=("$HOME/.zshrc")
+        fi
+    else
+        echo "Warning: Unsupported shell '$shell_name'. Manual configuration may be required." >&2
+        return
     fi
 
-    if ! grep -qF -- "$source_line" "$shell_profile"; then
-        echo "  - Adding workspace tool initialization to $shell_profile..."
-        printf "\n%s\n%s\n" "$init_comment" "$source_line" >> "$shell_profile"
+    if [ ${#profile_files[@]} -eq 0 ]; then
+        if [ "$shell_name" = "bash" ]; then
+            echo "  - No existing bash profile found. Creating a new .bashrc..."
+            touch "$HOME/.bashrc"
+            profile_files+=("$HOME/.bashrc")
+        elif [ "$shell_name" = "zsh" ]; then
+            echo "  - No existing zsh profile found. Creating a new .zshrc..."
+            touch "$HOME/.zshrc"
+            profile_files+=("$HOME/.zshrc")
+        fi
     fi
+
+    local init_block="# >>> workspace tool initialize >>>\n# This block was automatically added by the workspace installer.\n# To remove, run 'install.sh --uninstall' or simply delete this block.\nif [ -f \"$CONFIG_SCRIPT\" ]; then\n    source \"$CONFIG_SCRIPT\"\nfi\n# <<< workspace tool initialize <<<
+"
+
+    for profile_file in "${profile_files[@]}"; do
+        if ! grep -q "# >>> workspace tool initialize >>>" "$profile_file"; then
+            echo "  - Adding workspace tool initialization to $profile_file..."
+            printf "\n%s" "$init_block" >> "$profile_file"
+        else
+            echo "  - Workspace tool already initialized in $profile_file."
+        fi
+    done
+
     echo "  - Shell profile is up to date."
 }
 
@@ -202,17 +242,16 @@ setup_executable() {
     echo "  - Linked $SRC_SCRIPT to $DEST_LINK"
 }
 
-
 install() {
     echo "Starting installation of the 'workspace' tool..."
     check_dependencies
-    install_oh_my_bash
+    install_oh_my_shell
     setup_shell_config
     update_user_profile
     setup_executable
 
     echo -e "\n--- Installation Complete ---"
-    echo "To finish, please run: source ~/.bashrc"
+    echo "To finish, please restart your shell or run: source ~/.bashrc (or ~/.zshrc)"
 }
 
 uninstall() {
@@ -229,16 +268,25 @@ uninstall() {
 
     # 1. Remove shell integration
     echo " - Removing shell profile integration..."
-    local shell_profile="$HOME/.bashrc"
-    # Escape the config script path to be used in sed. The path contains '/' which would break the sed command.
-    local escaped_path="${CONFIG_SCRIPT//\//\\/}"
-    local source_line_pattern="source.*${escaped_path}"
-    local init_comment="# Initialize workspace tool"
-    if [ -f "$shell_profile" ]; then
-        sed -i.bak -e "/^${init_comment}$/{N;/${source_line_pattern}/d;}" -e 'G;/^\s*$/d' "$shell_profile"
-        rm -f "${shell_profile}.bak"
-        echo "  - Removed integration from $shell_profile."
+    local shell_name=$(basename "$SHELL")
+    local profile_files=()
+
+    if [ "$shell_name" = "bash" ]; then
+        if [ -f "$HOME/.bash_profile" ]; then profile_files+=("$HOME/.bash_profile"); fi
+        if [ -f "$HOME/.bash_login" ]; then profile_files+=("$HOME/.bash_login"); fi
+        if [ -f "$HOME/.profile" ]; then profile_files+=("$HOME/.profile"); fi
+        if [ -f "$HOME/.bashrc" ]; then profile_files+=("$HOME/.bashrc"); fi
+    elif [ "$shell_name" = "zsh" ]; then
+        if [ -f "$HOME/.zshrc" ]; then profile_files+=("$HOME/.zshrc"); fi
     fi
+
+    for profile_file in "${profile_files[@]}"; do
+        if [ -f "$profile_file" ]; then
+            echo "  - Removing integration from $profile_file."
+            sed -i.bak '/^# >>> workspace tool initialize >>>/,/^# <<< workspace tool initialize <<</d' "$profile_file"
+            rm -f "${profile_file}.bak"
+        fi
+    done
 
     # 2. Remove executable and bin directory
     echo " - Removing executable link..."
@@ -281,7 +329,7 @@ uninstall() {
     unset -f _warm_workspaces
 
     echo -e "\n--- Uninstallation Complete ---"
-    echo "Please run 'source ~/.bashrc' to finalize the process."
+    echo "To finalize, please restart your shell or run: source ~/.bashrc (or ~/.zshrc)"
     echo "You can now safely delete the installation directory: $INSTALL_DIR"
 }
 
