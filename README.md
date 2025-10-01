@@ -47,8 +47,8 @@ Getting started is as simple as running our smart installer. It handles dependen
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/workspace.git
-cd workspace
+git clone https://github.com/SplashCodeDex/Unlimited-Cloud-VM-Storage.git
+cd Unlimited-Cloud-VM-Storage
 
 # Run the installer
 ./install.sh
