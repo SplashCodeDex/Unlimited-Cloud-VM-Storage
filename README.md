@@ -1,8 +1,8 @@
-# workspace: The Intelligent Ephemeral Workspace Manager
+# Unlimited-Cloud-VM-Storage: The Intelligent Ephemeral Workspace Manager To Increase Your Google Cloudshell, GitHub Codespaces, Gitpod, Firebase Studio free 5GB and 15GB to Unlimited and avoid the 'Not enough Space/Storage' problem.
 
-**Tired of hitting storage limits on Google Cloud Shell? Juggling projects across GitHub Codespaces, Gitpod, and other remote VMs? `workspace` is the seamless solution for a clean, efficient, and unified workflow.**
+**Tired of hitting storage limits on Google Cloud Shell? Juggling projects across GitHub Codespaces, Gitpod, Firebase Studio and other remote VMs? `Unlimited-Cloud-VM-Storage` is the seamless solution for a clean, efficient, and unified workflow.**
 
-`workspace` is a powerful command-line tool for creating and managing ephemeral development environments. It keeps your home directory pristine and your workflow laser-focused by creating temporary, isolated workspaces for each of your projects. Its intelligent history system learns your habits, always presenting your most relevant projects first, no matter the platform.
+`Unlimited-Cloud-VM-Storage` is a powerful command-line tool for creating and managing ephemeral development environments. It keeps your home directory pristine and your workflow laser-focused by creating temporary, isolated workspaces for each of your projects. Its intelligent history system learns your habits, always presenting your most relevant projects first, no matter the platform.
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Language](https://img.shields.io/badge/Language-Shell-blue.svg)
@@ -10,18 +10,18 @@
 
 ---
 
-> You're in a GitHub Codespace, you've just finished a feature and want to switch to a different project. You have to find the project, open a new Codespace, wait for it to build, and then finally get to work. With `workspace`, you can switch between projects in seconds, without ever leaving your terminal.
+> You're in a GitHub Codespace, you've just finished a feature and want to switch to a different project. You have to find the project, open a new Codespace, wait for it to build, and then finally get to work. With `Unlimited-Cloud-VM-Storage`, you can switch between projects in seconds, without ever leaving your terminal.
 
 <br>
 
 ## Your Universal Dev Environment Companion
 
-`workspace` is the ultimate workspace manager for developers who work in a variety of ephemeral environments. Its lightweight and portable nature means you can have a consistent and efficient workflow, no matter where you code.
+`Unlimited-Cloud-VM-Storage` is the ultimate workspace manager for developers who work in a variety of ephemeral environments. Its lightweight and portable nature means you can have a consistent and efficient workflow, no matter where you code.
 
 - **GitHub Codespaces:** Instantly switch between projects without the delay of creating and provisioning new Codespaces. Keep your environment clean and your productivity high.
-- **Google Cloud Shell & Firebase:** Say goodbye to the 5GB storage limit. `workspace` manages all your projects in temporary storage, keeping your home directory lean and your sessions fast.
-- **Gitpod:** Supercharge Gitpod's "fresh workspace" philosophy. `workspace` gives you an intelligent, persistent history of your projects, ready to be checked out in an instant.
-- **AWS Cloud9 & Any Remote VM:** Standardize your development workflow across all your remote machines. `workspace` provides a consistent, powerful, and portable experience everywhere.
+- **Google Cloud Shell & Firebase:** Say goodbye to the 5GB storage limit. `Unlimited-Cloud-VM-Storage` manages all your projects in temporary storage, keeping your home directory lean and your sessions fast.
+- **Gitpod:** Supercharge Gitpod's "fresh workspace" philosophy. `Unlimited-Cloud-VM-Storage` gives you an intelligent, persistent history of your projects, ready to be checked out in an instant.
+- **AWS Cloud9 & Any Remote VM:** Standardize your development workflow across all your remote machines. `Unlimited-Cloud-VM-Storage` provides a consistent, powerful, and portable experience everywhere.
 
 ---
 
