@@ -1,3 +1,4 @@
+
 #!/bin/bash
 # Enhanced script to create, list, and switch ephemeral workspaces.
 
@@ -23,6 +24,7 @@ A tool for creating, managing, and switching between ephemeral development works
 
 COMMANDS:
   warm          Manually refresh all Git-based workspaces by fetching the latest changes.
+  doctor        Check for common problems and offer solutions.
   --help        Show this help message.
 
 MODES:
@@ -51,10 +53,7 @@ _link_configs() {
 
     echo "Linking configurations from $CONFIG_FILE_PATH..." >&2
     while IFS= read -r item || [[ -n "$item" ]]; do
-        # Skip comments and empty lines
         if [[ "$item" =~ ^\s*# ]] || [ -z "$item" ]; then continue; fi
-
-        # Skip shell-specific files, they are handled separately.
         if [[ "$item" == ".bashrc" || "$item" == ".profile" || "$item" == ".zshrc" || "$item" == ".zprofile" ]]; then continue; fi
 
         local source_path="$HOME/$item"
@@ -73,10 +72,7 @@ _symlink_artifacts() {
     
     echo "Checking for heavy artifacts to symlink to ephemeral storage..." >&2
 
-    # --- Smart Detection & Override Logic ---
     local auto_detected_dirs=()
-
-    # --- Run Detectors ---
     if [ -d "$DETECTORS_DIR" ]; then
         for detector in "$DETECTORS_DIR"/*.sh; do
             if [ -f "$detector" ] && [ -x "$detector" ]; then
@@ -93,7 +89,6 @@ _symlink_artifacts() {
         while IFS= read -r line; do [[ "$line" =~ ^\s*# ]] || [ -z "$line" ] && continue; manual_dirs+=("$line"); done < "$override_file"
     fi
 
-    # --- Dynamic Discovery of Large, Untracked Dirs ---
     local candidate_dirs=()
     if [ -d "$project_path/.git" ]; then
         echo "  - Scanning for large, untracked directories..." >&2
@@ -123,7 +118,6 @@ _symlink_artifacts() {
 
     if [ -z "$final_dirs_to_process" ]; then echo "  - No artifact directories to process." >&2; return; fi
 
-    # --- Symlinking Execution ---
     for dir_name in $final_dirs_to_process; do
         local project_artifact_path="$project_path/$dir_name"
         local cache_target_path="$ephemeral_project_cache_dir/$dir_name"
@@ -165,6 +159,19 @@ _update_history() {
     fi
 }
 
+_get_git_status() {
+    local path="$1"
+    if [ ! -d "$path/.git" ]; then echo ""; return; fi
+    local branch=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    local status
+    if ! git -C "$path" diff-index --quiet HEAD --; then
+        status="[!M]"
+    else
+        status="[✓]"
+    fi
+    echo "$status ($branch)"
+}
+
 _handle_interactive_selection() {
     if [ ! -f "$DB_FILE" ]; then
         echo "No workspaces in history. Create one with 'workspace <git_repo_url_or_name>'." >&2
@@ -183,28 +190,24 @@ _handle_interactive_selection() {
     local project_path_to_enter=""
 
     if command -v fzf &>/dev/null; then
-        # Use fzf for an enhanced interactive experience
         local fzf_input
         fzf_input=$(echo "$db_output" | while IFS='|' read -r path last_access; do
             local project_name=$(basename "$path")
-            local status="[ ]"
-            if [ -d "$path" ]; then status="[✓]"; fi
-            printf "  %-5s %-40s %s\n" "$status" "$project_name" "$path"
+            local git_status=$(_get_git_status "$path")
+            printf "  %-15s %-40s %s\\n" "$git_status" "$project_name" "$path"
         done)
 
         local selected_line
         selected_line=$(echo -e "$fzf_input" | fzf --height 40% --layout=reverse --info=inline --border --header='Select a workspace...' --ansi)
         project_path_to_enter=$(echo "$selected_line" | awk '{print $NF}')
     else
-        # Fallback to a numbered list if fzf is not installed
         echo "Recent workspaces (ranked by frecency):" >&2
         local i=1
         local paths=()
         echo "$db_output" | while IFS='|' read -r path last_access; do
             local project_name=$(basename "$path")
-            local status="[ ]"
-            if [ -d "$path" ]; then status="[✓]"; fi
-            printf "  %2d: %s %s\n" "$i" "$status" "$project_name" >&2
+            local git_status=$(_get_git_status "$path")
+            printf "  %2d: %-10s %s\\n" "$i" "$git_status" "$project_name" >&2
             paths[$i]="$path"
             i=$((i+1))
         done
@@ -260,34 +263,35 @@ _handle_project_creation_or_opening() {
         PROJECT_NAME="$INPUT"
     fi
 
-    local SANITIZED_NAME
-    SANITIZED_NAME=$(echo "$PROJECT_NAME" | sed 's/[^a-zA-Z0-9_-]//g')
-    if [ -z "$SANITIZED_NAME" ]; then
-        echo "Error: Project name is invalid." >&2
-        exit 1
-    fi
-    
+    local SANITIZED_NAME=$(echo "$PROJECT_NAME" | sed 's/[^a-zA-Z0-9_-]//g')
     local PROJECT_PATH="$WORKSPACE_BASE_DIR/$SANITIZED_NAME"
+
+    if [ ! -d "$PROJECT_PATH" ] && command -v autojump &>/dev/null; then
+        local autojump_path=$(autojump -s "$INPUT")
+        if [ -d "$autojump_path" ]; then
+            echo "Found matching directory with autojump: $autojump_path"
+            read -p "Do you want to treat this as a workspace? [Y/n] " -n 1 -r; echo
+            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                PROJECT_PATH="$autojump_path"
+                SANITIZED_NAME=$(basename "$autojump_path")
+            fi
+        fi
+    fi
 
     if [ "$IS_GIT_REPO" = true ] && [ -d "$PROJECT_PATH" ] && [ ! -d "$PROJECT_PATH/.git" ]; then
         echo "Warning: A non-Git workspace named '$SANITIZED_NAME' already exists." >&2
-        read -p "Do you want to replace it by cloning '$INPUT'? [y/N] " -n 1 -r
-        echo >&2
+        read -p "Do you want to replace it by cloning '$INPUT'? [y/N] " -n 1 -r; echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            echo "  - Removing existing directory." >&2
             rm -rf "$PROJECT_PATH"
         else
-            echo "  - Operation cancelled. Opening existing workspace." >&2
+            echo "Operation cancelled. Opening existing workspace." >&2
         fi
     fi
 
     if [ ! -d "$PROJECT_PATH" ]; then
         if [ "$IS_GIT_REPO" = true ]; then
             echo "Cloning '$INPUT' into '$PROJECT_PATH'..." >&2
-            if ! git clone "$INPUT" "$PROJECT_PATH"; then
-                echo "Error: Failed to clone." >&2
-                exit 1
-            fi
+            git clone "$INPUT" "$PROJECT_PATH"
         else
             echo "Creating new empty workspace '$PROJECT_PATH'..." >&2
             mkdir -p "$PROJECT_PATH"
@@ -303,10 +307,8 @@ _handle_project_creation_or_opening() {
     if [ -d "$PROJECT_PATH/.git" ]; then
         GIT_URL=$(git -C "$PROJECT_PATH" config --get remote.origin.url)
         if [[ "$GIT_URL" == https://github.com/* ]]; then
-            local SSH_URL
-            SSH_URL=$(echo "$GIT_URL" | sed 's|https://github.com/|git@github.com:|')
-            echo "Converting clone URL to SSH for background warming: $SSH_URL" >&2
-            GIT_URL="$SSH_URL"
+            GIT_URL=$(echo "$GIT_URL" | sed 's|https://github.com/|git@github.com:|')
+            echo "Converting clone URL to SSH for background warming: $GIT_URL" >&2
         fi
     fi
     
@@ -314,21 +316,55 @@ _handle_project_creation_or_opening() {
     echo "$PROJECT_PATH"
 }
 
+doctor() {
+    echo "Running workspace doctor..."
+    local all_ok=true
+
+    echo -n "1. Checking core dependencies: "
+    if ! command -v git &>/dev/null || ! command -v sqlite3 &>/dev/null || ! command -v rsync &>/dev/null; then
+        echo "FAIL (git, sqlite3, or rsync is missing)"; all_ok=false
+    else
+        echo "OK"
+    fi
+
+    echo -n "2. Checking shell integration: "
+    local shell_name=$(basename "$SHELL")
+    local profile_file=""
+    if [ "$shell_name" = "bash" ]; then profile_file="$HOME/.bashrc";
+    elif [ "$shell_name" = "zsh" ]; then profile_file="$HOME/.zshrc"; fi
+    
+    if ! grep -q "# >>> workspace tool initialize >>>" "$profile_file"; then
+        echo "FAIL ($profile_file is not correctly configured)"; all_ok=false
+    else
+        echo "OK"
+    fi
+
+    echo -n "3. Checking database file: "
+    if [ ! -f "$DB_FILE" ]; then
+        echo "WARNING (Database not found, will be created on next run)"
+    else
+        echo "OK"
+    fi
+
+    echo -n "4. Checking workspace directory: "
+    if [ ! -d "$WORKSPACE_BASE_DIR" ]; then
+        echo "WARNING (Base directory '$WORKSPACE_BASE_DIR' not found)"
+    else
+        echo "OK"
+    fi
+
+    if [ "$all_ok" = true ]; then
+        echo "All checks passed! Your workspace environment appears to be healthy."
+    else
+        echo "Doctor found some issues. Please review the output above."
+    fi
+}
+
 main() {
     case "$1" in
-        --help|-h)
-            show_help
-            exit 0
-            ;;
-        warm)
-            if [ -f "$WARM_SCRIPT_PATH" ]; then
-                bash "$WARM_SCRIPT_PATH"
-                echo "Workspace warming complete."
-            else
-                echo "Error: warm_workspaces.sh script not found." >&2
-            fi
-            exit 0
-            ;;
+        --help|-h) show_help; exit 0 ;;
+        warm) bash "$WARM_SCRIPT_PATH"; echo "Workspace warming complete."; exit 0 ;;
+        doctor) doctor; exit 0 ;;
         -*)
             echo "Error: Unknown option '$1'" >&2
             show_help >&2
@@ -340,17 +376,13 @@ main() {
     mkdir -p "$WORKSPACE_BASE_DIR"
 
     if [[ -z "$1" ]]; then
-        local path_to_enter
-        path_to_enter=$(_handle_interactive_selection)
-        # This special echo is for the calling shell function to capture and cd
+        local path_to_enter=$(_handle_interactive_selection)
         echo "__cd__:$path_to_enter"
     elif [[ "$1" =~ ^[0-9]+$ ]]; then
-        local path_to_enter
-        path_to_enter=$(_handle_numeric_selection "$1")
+        local path_to_enter=$(_handle_numeric_selection "$1")
         echo "__cd__:$path_to_enter"
     else
-        local path_to_enter
-        path_to_enter=$(_handle_project_creation_or_opening "$1")
+        local path_to_enter=$(_handle_project_creation_or_opening "$1")
         echo "__cd__:$path_to_enter"
     fi
 }
