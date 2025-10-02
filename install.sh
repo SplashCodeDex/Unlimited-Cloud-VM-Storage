@@ -43,7 +43,7 @@ abort() {
 }
 
 is_nix_environment() {
-    [ -f "$NIX_CONFIG_FILE" ]
+    [ -d "/nix/store" ] && command -v nix-shell &>/dev/null
 }
 
 detect_package_manager() {
@@ -74,6 +74,33 @@ get_package_name() {
             echo "$generic_name"
             ;;
     esac
+}
+
+create_nix_config_if_not_exists() {
+    if [ -f "$NIX_CONFIG_FILE" ]; then return; fi
+
+    echo "  - Creating default '$NIX_CONFIG_FILE'..."
+    mkdir -p ".idx"
+    cat << EOF > "$NIX_CONFIG_FILE"
+{
+  # To learn more about how to configure your workspace, see https://www.project-idx.dev/docs/config-idx-json
+  # The following are examples of common configurations.
+
+  # A list of extensions to install.
+  # extensions = [
+  #   "vscodevim.vim"
+  # ];
+
+  # A list of packages to install.
+  # packages = [
+  #   "go",
+  #   "python3"
+  # ];
+
+  # A command to run when the workspace starts.
+  # startup_command = "echo 'Welcome to your new workspace!'";
+}
+EOF
 }
 
 check_dependencies() {
@@ -129,6 +156,7 @@ check_dependencies() {
 
 update_nix_dependencies() {
     echo "  - Adding dependencies to '$NIX_CONFIG_FILE'..."
+    create_nix_config_if_not_exists
     local deps_to_add=("$@")
 
     # Ensure there is a packages list
@@ -250,23 +278,25 @@ update_user_profile() {
 
 update_nix_shell_hook() {
     echo -e "\n(4/5) Updating Nix shell hook..."
+    create_nix_config_if_not_exists
 
-    local hook_line="source \"$CONFIG_SCRIPT\" # workspace-hook"
+    local hook_addition="source \"$CONFIG_SCRIPT\" # workspace-hook"
+    local temp_nix_file=$(mktemp)
 
-    if ! grep -q "shellHook" "$NIX_CONFIG_FILE"; then
-        # Add a new shellHook attribute
-        sed -i.bak '/^}/ i \  shellHook = ''\n    '${pkgs.lib.escapeShellArg ''\n      '"$hook_line"'\n    }' "$NIX_CONFIG_FILE" || abort "Failed to add shellHook to $NIX_CONFIG_FILE"
-        echo "  - Created and configured shellHook in $NIX_CONFIG_FILE."
-    else
-        # Append to an existing shellHook, handling various formatting
-        sed -i.bak "/shellHook\s*=\s*''/s|''|'\n$hook_line\n'|" "$NIX_CONFIG_FILE" || abort "Failed to update shellHook in $NIX_CONFIG_FILE"
-        echo "  - Updated shellHook in $NIX_CONFIG_FILE."
-    fi
+    # Remove existing shellHook, if any
+    grep -v "shellHook" "$NIX_CONFIG_FILE" > "$temp_nix_file" || true
 
-    rm -f "${NIX_CONFIG_FILE}.bak"
+    # Add the new shellHook
+    echo -e "\nshellHook = ''\n${hook_addition}\n'';" >> "$temp_nix_file"
+
+    # Replace the original file with the updated one
+    mv "$temp_nix_file" "$NIX_CONFIG_FILE" || abort "Failed to update Nix config file"
+
+    echo "  - Updated shellHook in $NIX_CONFIG_FILE."
     echo "profile:$NIX_CONFIG_FILE" >> "$MANIFEST_FILE"
     PROFILE_UPDATED="Nix environment"
 }
+
 
 update_standard_shell() {
     echo -e "\n(4/5) Updating user's shell profile..."
@@ -439,16 +469,19 @@ uninstall_nix_dependencies() {
 
 uninstall_nix_shell_hook() {
     echo "   - Removing shellHook entry from $NIX_CONFIG_FILE..."
-    if [ -f "$NIX_CONFIG_FILE" ]; then
-        # Remove the line containing the workspace-hook comment
-        sed -i.bak '/# workspace-hook/d' "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
-        # If the shellHook is now empty, remove the entire block
-        if grep -q "shellHook\s*=\s*''\s*''" "$NIX_CONFIG_FILE"; then
-            sed -i.bak "/shellHook\s*=\s*''\s*''/d" "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
-        fi
-        rm -f "${NIX_CONFIG_FILE}.bak"
-    fi
+    if [ ! -f "$NIX_CONFIG_FILE" ]; then return; fi
+
+    local temp_nix_file=$(mktemp)
+
+    # Remove the shellHook from the original file and write to a temp file
+    grep -v "shellHook" "$NIX_CONFIG_FILE" > "$temp_nix_file" || true
+
+    # Replace the original file with the updated one
+    mv "$temp_nix_file" "$NIX_CONFIG_FILE" || abort "Failed to update Nix config file"
+
+    echo "  - Updated shellHook in $NIX_CONFIG_FILE."
 }
+
 
 # --- Main Script ---
 main() {
