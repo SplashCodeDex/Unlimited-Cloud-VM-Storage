@@ -485,6 +485,14 @@ uninstall_nix_shell_hook() {
 
 # --- Main Script ---
 main() {
+    if [ "$(id -u)" -ne 0 ] && [ -z "$SUDO_CMD" ]; then
+        if command -v sudo &>/dev/null; then
+            SUDO_CMD="sudo"
+        else
+            abort "This script requires root privileges to install dependencies. Please run as root or ensure 'sudo' is installed."
+        fi
+    fi
+
     for arg in "$@"; do
         case $arg in
             --uninstall) uninstall; exit 0 ;;
