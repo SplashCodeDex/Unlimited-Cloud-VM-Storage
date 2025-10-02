@@ -176,7 +176,7 @@ install_missing_dependencies() {
 
 install_oh_my_shell() {
     local shell_name=$(basename "$SHELL")
-    echo -e "\n(2/5) Configuring shell environment..."
+    echo -e "\\n(2/5) Configuring shell environment..."
     if [ "$shell_name" = "zsh" ] && [ ! -d "$HOME/.oh-my-zsh" ]; then
         echo "  - Oh My Zsh is recommended for the best experience."
         if [ "$NON_INTERACTIVE" = false ]; then
@@ -193,7 +193,7 @@ install_oh_my_shell() {
 }
 
 setup_shell_config() {
-    echo -e "\n(3/5) Creating shell function and configuration..."
+    echo -e "\\n(3/5) Creating shell function and configuration..."
     mkdir -p "$CONFIG_DIR" && echo "dir:$CONFIG_DIR" >> "$MANIFEST_FILE"
     
     cat << EOF > "$CONFIG_SCRIPT"
@@ -202,11 +202,11 @@ setup_shell_config() {
 
 workspace() {
     local executable="$DEST_LINK"
-    local output=\$($executable "$@")
+    local output=\$("$executable" "\$@")
     local exit_code=\$?
 
     if [ \$exit_code -eq 0 ]; then
-        if [[ "\$output" == "__cd__:*" ]]; then
+        if [[ "\$output" == "__cd__:"* ]]; then
             local dir_to_change_to=\${output#__cd__:}
             if [ -d "\$dir_to_change_to" ]; then
                 cd "\$dir_to_change_to"
@@ -222,8 +222,8 @@ workspace() {
 }
 
 _warm_workspaces() {
-    if [ -f \"$WARM_SCRIPT_PATH\" ] && [ -x \"$WARM_SCRIPT_PATH\" ]; then
-        bash \"$WARM_SCRIPT_PATH\" &>/dev/null &
+    if [ -f "$WARM_SCRIPT_PATH" ] && [ -x "$WARM_SCRIPT_PATH" ]; then
+        bash "$WARM_SCRIPT_PATH" &>/dev/null &
     fi
 }
 EOF
@@ -232,7 +232,7 @@ EOF
 }
 
 update_user_profile() {
-    echo -e "\n(4/5) Updating user's shell profile..."
+    echo -e "\\n(4/5) Updating user's shell profile..."
     local shell_name=$(basename "$SHELL")
     local profile_to_update=""
 
@@ -246,11 +246,11 @@ update_user_profile() {
     
     touch "$profile_to_update" 
 
-    local init_block="# >>> workspace tool initialize >>>\n# This block was automatically added by the workspace installer.\n# To remove, run 'install.sh --uninstall' or simply delete this block.\nif [ -f \"$CONFIG_SCRIPT\" ]; then\n    source \"$CONFIG_SCRIPT\"\nfi\n# <<< workspace tool initialize <<<"
+    local init_block="# >>> workspace tool initialize >>>\\n# This block was automatically added by the workspace installer.\\n# To remove, run 'install.sh --uninstall' or simply delete this block.\\nif [ -f \\"$CONFIG_SCRIPT\\" ]; then\\n    source \\"$CONFIG_SCRIPT\\"\\nfi\\n# <<< workspace tool initialize <<<"
 
     if ! grep -q "# >>> workspace tool initialize >>>" "$profile_to_update"; then
         echo "  - Adding workspace tool initialization to $profile_to_update..."
-        printf "\n%s\n" "$init_block" >> "$profile_to_update"
+        printf "\\n%s\\n" "$init_block" >> "$profile_to_update"
         echo "profile:$profile_to_update" >> "$MANIFEST_FILE"
     else
         echo "  - Workspace tool already initialized in $profile_to_update."
@@ -259,7 +259,7 @@ update_user_profile() {
 }
 
 setup_executable() {
-    echo -e "\n(5/5) Setting up executable..."
+    echo -e "\\n(5/5) Setting up executable..."
     mkdir -p "$BIN_DIR" && echo "dir:$BIN_DIR" >> "$MANIFEST_FILE"
     chmod +x "$SRC_SCRIPT" "$WARM_SCRIPT_PATH"
     ln -sf "$SRC_SCRIPT" "$DEST_LINK"
@@ -270,7 +270,7 @@ setup_executable() {
 first_run_experience() {
     if [ -f "$FIRST_RUN_FLAG" ]; then return; fi
 
-    echo -e "\n--- First-time setup ---"
+    echo -e "\\n--- First-time setup ---"
     echo "Welcome to the 'workspace' tool! Let's get you configured."
 
     local default_ws_dir="$HOME/Workspaces"
@@ -283,7 +283,7 @@ first_run_experience() {
 
     local config_sh_path="$INSTALL_DIR/scripts/config.sh"
     if [ -f "$config_sh_path" ]; then
-        sed -i.bak "s|^export WORKSPACE_BASE_DIR=.*|export WORKSPACE_BASE_DIR=\"$ws_dir\"|" "$config_sh_path"
+        sed -i.bak "s|^export WORKSPACE_BASE_DIR=.*|export WORKSPACE_BASE_DIR=\\"$ws_dir\\"|" "$config_sh_path"
         rm -f "${config_sh_path}.bak"
         echo "  - Workspace base directory set to: $ws_dir"
     fi
@@ -307,7 +307,7 @@ install() {
     setup_executable
     first_run_experience
 
-    echo -e "\n--- Verifying Installation ---"
+    echo -e "\\n--- Verifying Installation ---"
     source "$CONFIG_SCRIPT"
     if command -v workspace &>/dev/null && workspace doctor --silent; then
         echo "✅ Verification successful!"
@@ -315,7 +315,7 @@ install() {
         echo "⚠️ Verification failed. Please run 'workspace doctor' for more details."
     fi
 
-    echo -e "\n--- Installation Complete ---"
+    echo -e "\\n--- Installation Complete ---"
     echo "To finish, please restart your shell or run: source $PROFILE_UPDATED"
 }
 
@@ -371,7 +371,7 @@ uninstall() {
         fi
     fi
 
-    echo -e "\n--- Uninstallation Complete ---"
+    echo -e "\\n--- Uninstallation Complete ---"
     echo "Note: Dependencies installed by the system package manager were not removed."
     echo "You can now safely delete the installation directory: $INSTALL_DIR"
 }
