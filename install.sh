@@ -136,17 +136,9 @@ update_nix_dependencies() {
     for dep in "${deps_to_add[@]}"; do
         local pkg_name=$(get_package_name "$dep" "nix")
         # Avoid adding duplicate packages
-        if ! grep -q "$pkg_name" "$NIX_CONFIG_FILE"; then
-            # Check if packages are in a single line
-            if grep -q "packages = with pkgs; \[[^]]*];" "$NIX_CONFIG_FILE"; then
-                sed -i.bak "s/packages = with pkgs; \[[^]]*];/packages = with pkgs; [ $pkg_name # workspace-dependency ];/" "$NIX_CONFIG_FILE" || abort "Failed to add dependency $pkg_name to $NIX_CONFIG_FILE"
-            else
-                sed -i.bak "/packages = with pkgs; \[/
-
-a    $pkg_name # workspace-dependency
-
-" "$NIX_CONFIG_FILE" || abort "Failed to add dependency $pkg_name to $NIX_CONFIG_FILE"
-            fi
+        if ! grep -q "[" ]$pkg_name[" ]" "$NIX_CONFIG_FILE"; then
+            # Add the dependency to the packages list
+            sed -i.bak "/packages\s*=\s*with pkgs;\s*\[/a \    $pkg_name # workspace-dependency" "$NIX_CONFIG_FILE" || abort "Failed to add dependency $pkg_name to $NIX_CONFIG_FILE"
             echo "    - Added '$pkg_name'"
         fi
     done
@@ -189,7 +181,7 @@ install_missing_dependencies() {
 
 install_oh_my_shell() {
     local shell_name=$(basename "$SHELL")
-    echo -e "\\n(2/5) Configuring shell environment..."
+    echo -e "\n(2/5) Configuring shell environment..."
     if [ "$shell_name" = "zsh" ] && [ ! -d "$HOME/.oh-my-zsh" ]; then
         echo "  - Oh My Zsh is recommended for the best experience."
         if [ "$NON_INTERACTIVE" = false ]; then
@@ -206,7 +198,7 @@ install_oh_my_shell() {
 }
 
 setup_shell_config() {
-    echo -e "\\n(3/5) Creating shell function and configuration..."
+    echo -e "\n(3/5) Creating shell function and configuration..."
     mkdir -p "$CONFIG_DIR" && echo "dir:$CONFIG_DIR" >> "$MANIFEST_FILE"
 
     cat << EOF > "$CONFIG_SCRIPT"
@@ -215,22 +207,22 @@ setup_shell_config() {
 
 workspace() {
     local executable="$DEST_LINK"
-    local output=\\$("$executable" "\\$@")
-    local exit_code=\\$?
+    local output=\$("$executable" "\$@")
+    local exit_code=\$?
 
-    if [ \\$exit_code -eq 0 ]; then
-        if [[ "\\$output" == "__cd__:"* ]]; then
-            local dir_to_change_to=\\${output#__cd__:}
-            if [ -d "\\$dir_to_change_to" ]; then
-                cd "\\$dir_to_change_to"
+    if [ \$exit_code -eq 0 ]; then
+        if [[ "\$output" == "__cd__:"* ]]; then
+            local dir_to_change_to=\${output#__cd__:}
+            if [ -d "\$dir_to_change_to" ]; then
+                cd "\$dir_to_change_to"
             else
-                echo "Error: Target directory '\\$dir_to_change_to' does not exist." >&2
+                echo "Error: Target directory '\$dir_to_change_to' does not exist." >&2
             fi
         else
-            echo "\\$output"
+            echo "\$output"
         fi
     else
-        echo "\\$output" >&2
+        echo "\$output" >&2
     fi
 }
 
@@ -253,17 +245,17 @@ update_user_profile() {
 }
 
 update_nix_shell_hook() {
-    echo -e "\\n(4/5) Updating Nix shell hook..."
+    echo -e "\n(4/5) Updating Nix shell hook..."
 
-    local hook_line="source \\\"$CONFIG_SCRIPT\\\" # workspace-hook"
+    local hook_line="source \"$CONFIG_SCRIPT\" # workspace-hook"
 
     if ! grep -q "shellHook" "$NIX_CONFIG_FILE"; then
-        # Add a new shellHook
-        sed -i.bak '/^}/ i \  shellHook = ''\\n    ''${pkgs.lib.escapeShellArg ''\\n      '"$hook_line"'\\n    }' "$NIX_CONFIG_FILE" || abort "Failed to add shellHook to $NIX_CONFIG_FILE"
+        # Add a new shellHook attribute
+        sed -i.bak '/^}/ i \  shellHook = ''\n    '${pkgs.lib.escapeShellArg ''\n      '"$hook_line"'\n    }' "$NIX_CONFIG_FILE" || abort "Failed to add shellHook to $NIX_CONFIG_FILE"
         echo "  - Created and configured shellHook in $NIX_CONFIG_FILE."
     else
-        # Append to existing shellHook
-        sed -i.bak "/shellHook =/a \        '"$hook_line"' \\'" "$NIX_CONFIG_FILE" || abort "Failed to update shellHook in $NIX_CONFIG_FILE"
+        # Append to an existing shellHook, handling various formatting
+        sed -i.bak "/shellHook\s*=\s*''/s|''|'\n$hook_line\n'|" "$NIX_CONFIG_FILE" || abort "Failed to update shellHook in $NIX_CONFIG_FILE"
         echo "  - Updated shellHook in $NIX_CONFIG_FILE."
     fi
 
@@ -273,7 +265,7 @@ update_nix_shell_hook() {
 }
 
 update_standard_shell() {
-    echo -e "\\n(4/5) Updating user's shell profile..."
+    echo -e "\n(4/5) Updating user's shell profile..."
     local shell_name=$(basename "$SHELL")
     local profile_to_update=""
 
@@ -289,11 +281,11 @@ update_standard_shell() {
 
     touch "$profile_to_update"
 
-    local init_block="# >>> workspace tool initialize >>>\\\\n# This block was automatically added by the workspace installer.\\\\n# To remove, run 'install.sh --uninstall' or simply delete this block.\\\\nif [ -f \\\\\"$CONFIG_SCRIPT\\\\\" ]; then\\\\n    source \\\\\"$CONFIG_SCRIPT\\\\\"\\\\nfi\\\\n# <<< workspace tool initialize <<<"
+    local init_block="# >>> workspace tool initialize >>>\\n# This block was automatically added by the workspace installer.\\n# To remove, run 'install.sh --uninstall' or simply delete this block.\\nif [ -f \"$CONFIG_SCRIPT\" ]; then\\n    source \"$CONFIG_SCRIPT\"\\nfi\\n# <<< workspace tool initialize <<<"
 
     if ! grep -q "# >>> workspace tool initialize >>>" "$profile_to_update"; then
         echo "  - Adding workspace tool initialization to $profile_to_update..."
-        printf "\\n%s\\n" "$init_block" >> "$profile_to_update"
+        printf "\n%s\n" "$init_block" >> "$profile_to_update"
         echo "profile:$profile_to_update" >> "$MANIFEST_FILE"
     else
         echo "  - Workspace tool already initialized in $profile_to_update."
@@ -302,7 +294,7 @@ update_standard_shell() {
 }
 
 setup_executable() {
-    echo -e "\\n(5/5) Setting up executable..."
+    echo -e "\n(5/5) Setting up executable..."
     mkdir -p "$BIN_DIR" && echo "dir:$BIN_DIR" >> "$MANIFEST_FILE"
     chmod +x "$SRC_SCRIPT" "$WARM_SCRIPT_PATH"
     ln -sf "$SRC_SCRIPT" "$DEST_LINK"
@@ -313,7 +305,7 @@ setup_executable() {
 first_run_experience() {
     if [ -f "$FIRST_RUN_FLAG" ]; then return; fi
 
-    echo -e "\\n--- First-time setup ---"
+    echo -e "\n--- First-time setup ---"
     echo "Welcome to the 'workspace' tool! Let's get you configured."
 
     local default_ws_dir="$HOME/Workspaces"
@@ -326,7 +318,7 @@ first_run_experience() {
 
     local config_sh_path="$INSTALL_DIR/scripts/config.sh"
     if [ -f "$config_sh_path" ]; then
-        sed -i.bak "s|^export WORKSPACE_BASE_DIR=.*|export WORKSPACE_BASE_DIR=\\\\"$ws_dir\\\\"|" "$config_sh_path" || abort "Failed to set workspace base directory"
+        sed -i.bak "s|^export WORKSPACE_BASE_DIR=.*|export WORKSPACE_BASE_DIR=\"$ws_dir\"|" "$config_sh_path" || abort "Failed to set workspace base directory"
         rm -f "${config_sh_path}.bak"
         echo "  - Workspace base directory set to: $ws_dir"
     fi
@@ -350,7 +342,7 @@ install() {
     setup_executable
     first_run_experience
 
-    echo -e "\\n--- Verifying Installation ---"
+    echo -e "\n--- Verifying Installation ---"
     source "$CONFIG_SCRIPT"
     if command -v workspace &>/dev/null && workspace doctor --silent; then
         echo "✅ Verification successful!"
@@ -358,7 +350,7 @@ install() {
         echo "⚠️ Verification failed. Please run 'workspace doctor' for more details."
     fi
 
-    echo -e "\\n--- Installation Complete ---"
+    echo -e "\n--- Installation Complete ---"
     echo "To finish, please restart your shell or run: source $PROFILE_UPDATED"
 }
 
@@ -382,7 +374,7 @@ uninstall() {
         local profile_files=("$HOME/.bashrc" "$HOME/.zshrc")
         for profile_file in "${profile_files[@]}"; do
             if [ -f "$profile_file" ]; then
-                sed -i.bak 's/^# >>> workspace tool initialize >>>.*# <<< workspace tool initialize <<<$//' "$profile_file" >/dev/null 2>&1 || true
+                sed -i.bak '/^# >>> workspace tool initialize >>>/,/# <<< workspace tool initialize <<</d' "$profile_file" >/dev/null 2>&1 || true
                 rm -f "${profile_file}.bak"
             fi
         done
@@ -400,7 +392,7 @@ uninstall() {
                     else
                         echo "   - Removing shell profile entry from $path..."
                         if [ -f "$path" ]; then
-                            sed -i.bak 's/^# >>> workspace tool initialize >>>.*# <<< workspace tool initialize <<<$//' "$path" >/dev/null 2>&1 || true
+                            sed -i.bak '/^# >>> workspace tool initialize >>>/,/# <<< workspace tool initialize <<</d' "$path" >/dev/null 2>&1 || true
                             rm -f "${path}.bak"
                         fi
                     fi
@@ -425,7 +417,7 @@ uninstall() {
         fi
     fi
 
-    echo -e "\\n--- Uninstallation Complete ---"
+    echo -e "\n--- Uninstallation Complete ---"
     echo "Note: Dependencies installed by the system package manager were not removed."
     echo "You can now safely delete the installation directory: $INSTALL_DIR"
 }
@@ -433,7 +425,8 @@ uninstall() {
 uninstall_nix_dependencies() {
     echo "   - Removing dependencies from $NIX_CONFIG_FILE..."
     if [ -f "$NIX_CONFIG_FILE" ]; then
-        sed -i.bak '/ # workspace-dependency/d' "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
+        # Remove lines containing the workspace-dependency comment
+        sed -i.bak '/# workspace-dependency/d' "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
         rm -f "${NIX_CONFIG_FILE}.bak"
     fi
 }
@@ -441,10 +434,11 @@ uninstall_nix_dependencies() {
 uninstall_nix_shell_hook() {
     echo "   - Removing shellHook entry from $NIX_CONFIG_FILE..."
     if [ -f "$NIX_CONFIG_FILE" ]; then
-        sed -i.bak '/ # workspace-hook/d' "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
-        # Clean up empty shellHook
-        if grep -q "shellHook = ''\\n  '';" "$NIX_CONFIG_FILE"; then
-            sed -i.bak "/shellHook = ''\\n  '';/d" "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
+        # Remove the line containing the workspace-hook comment
+        sed -i.bak '/# workspace-hook/d' "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
+        # If the shellHook is now empty, remove the entire block
+        if grep -q "shellHook\s*=\s*''\s*'';" "$NIX_CONFIG_FILE"; then
+            sed -i.bak "/shellHook\s*=\s*''\s*'';/d" "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
         fi
         rm -f "${NIX_CONFIG_FILE}.bak"
     fi
