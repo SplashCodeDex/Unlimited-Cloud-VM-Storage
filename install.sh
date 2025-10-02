@@ -1,12 +1,15 @@
 #!/bin/bash
 
 # This script installs or uninstalls the 'workspace' command-line tool.
-# It is designed to be portable, resilient, and to provide a rich out-of-the-box experience.
+# It uses the system's native package manager to ensure all dependencies are met.
 
 set -e # Exit on any error
 
 # --- Globals ---
 NON_INTERACTIVE=false
+PROFILE_UPDATED=""
+SYS_PM=""
+SUDO_CMD=""
 
 # --- Configuration ---
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -17,26 +20,7 @@ CONFIG_DIR="$HOME/.config/workspace"
 CONFIG_SCRIPT="$CONFIG_DIR/workspace.sh"
 WARM_SCRIPT_PATH="$INSTALL_DIR/scripts/warm_workspaces.sh"
 FIRST_RUN_FLAG="$CONFIG_DIR/.first_run_completed"
-
-# --- Dynamic Homebrew Path ---
-# Determine the correct Homebrew path. Prefer the standard system-wide
-# location if we can, but fall back to a user-local path if not.
-if [[ "$(uname -s)" == "Darwin" ]]; then
-    if [[ "$(uname -m)" == "arm64" ]]; then
-        HOMEBREW_PREFIX="/opt/homebrew"
-    else
-        HOMEBREW_PREFIX="/usr/local"
-    fi
-else
-    # On Linux, check if we can write to the default location. If not, use $HOME.
-    if [ -w "/home/linuxbrew/.linuxbrew" ] || ( [ ! -d "/home/linuxbrew/.linuxbrew" ] && [ -w "/home" ]); then
-        HOMEBREW_PREFIX="/home/linuxbrew/.linuxbrew"
-    else
-        HOMEBREW_PREFIX="$HOME/.linuxbrew"
-    fi
-fi
-HOMEBREW_BIN="$HOMEBREW_PREFIX/bin"
-HOMEBREW_BREW_BIN="$HOMEBREW_BIN/brew"
+MANIFEST_FILE="$CONFIG_DIR/install-manifest.txt"
 
 # --- Helper Functions ---
 
@@ -56,19 +40,44 @@ abort() {
     exit 1
 }
 
+detect_package_manager() {
+    if command -v apt-get &>/dev/null; then SYS_PM="apt-get";
+    elif command -v yum &>/dev/null; then SYS_PM="yum";
+    elif command -v dnf &>/dev/null; then SYS_PM="dnf";
+    elif command -v pacman &>/dev/null; then SYS_PM="pacman";
+    elif command -v apk &>/dev/null; then SYS_PM="apk";
+    elif command -v nix-env &>/dev/null; then SYS_PM="nix-env";
+    else
+        SYS_PM="unknown"
+    fi
+}
+
+get_package_name() {
+    local generic_name="$1"
+    local pm="$2"
+
+    case "$pm" in
+        nix-env)
+            case "$generic_name" in
+                sqlite3) echo "sqlite" ;;
+                *) echo "$generic_name" ;;
+            esac
+            ;;
+        *)
+            echo "$generic_name"
+            ;;
+    esac
+}
+
 check_dependencies() {
-    echo "(1/6) Checking for dependencies..."
-    local core_deps=("git" "sqlite3" "rsync")
+    echo "(1/5) Checking for dependencies..."
+    detect_package_manager
+
+    local core_deps=("sqlite3" "rsync" "git" "curl")
     local optional_deps=("fzf" "autojump")
-    local all_deps=("${core_deps[@]}" "${optional_deps[@]}")
     local missing_deps=()
 
-    # Temporarily add Homebrew to PATH if it exists but isn't in the path yet
-    if [ -x "$HOMEBREW_BREW_BIN" ]; then
-        export PATH="$HOMEBREW_BIN:$PATH"
-    fi
-
-    for cmd in "${all_deps[@]}"; do
+    for cmd in "${core_deps[@]}" "${optional_deps[@]}"; do
         if ! command -v "$cmd" &>/dev/null; then
             missing_deps+=("$cmd")
         fi
@@ -85,7 +94,7 @@ check_dependencies() {
     if [ "$NON_INTERACTIVE" = true ]; then
         should_install=true
     else
-        read -p "This script can attempt to install them for you. May I proceed? [Y/n] " -n 1 -r; echo
+        read -p "This script can attempt to install them for you using the system package manager. May I proceed? [Y/n] " -n 1 -r; echo
         if [[ ! $REPLY =~ ^[Nn]$ ]]; then should_install=true; fi
     fi
 
@@ -93,7 +102,7 @@ check_dependencies() {
         install_missing_dependencies "${missing_deps[@]}"
     fi
 
-    # Final check for core dependencies
+    # Final check
     local still_missing_core_deps=()
     for cmd in "${core_deps[@]}"; do
         if ! command -v "$cmd" &>/dev/null; then
@@ -102,114 +111,66 @@ check_dependencies() {
     done
 
     if [ ${#still_missing_core_deps[@]} -gt 0 ]; then
-        abort "The following core dependencies are still missing: ${still_missing_core_deps[*]}. Please install them and run this script again."
+        abort "The following core dependencies are still missing: ${still_missing_core_deps[*]}. Please install them manually and run this script again."
     fi
 }
 
 install_missing_dependencies() {
     local missing_deps=("$@")
-    local pm_base_cmd=""
-    local needs_sudo=true
-
-    # First, check for standard system package managers
-    if command -v apt-get &>/dev/null; then pm_base_cmd="apt-get install -y";
-    elif command -v yum &>/dev/null; then pm_base_cmd="yum install -y";
-    elif command -v dnf &>/dev/null; then pm_base_cmd="dnf install -y";
-    elif command -v pacman &>/dev/null; then pm_base_cmd="pacman -S --noconfirm";
-    elif command -v apk &>/dev/null; then pm_base_cmd="apk add"; needs_sudo=false;
-    elif command -v brew &>/dev/null; then pm_base_cmd="brew install"; needs_sudo=false; fi
-
-    # If no PM, fallback to Homebrew
-    if [ -z "$pm_base_cmd" ]; then
-        echo "  - No standard package manager found. Attempting to install and use Homebrew."
-        if ! command -v brew &>/dev/null; then
-            install_homebrew
-        fi
-        # Re-check for brew after attempting installation
-        if command -v brew &>/dev/null; then 
-            pm_base_cmd="brew install"; needs_sudo=false;
-        fi
+    
+    if [ "$SYS_PM" = "unknown" ]; then
+        abort "Could not detect a supported package manager. Please install the missing dependencies manually: ${missing_deps[*]}"
     fi
 
-    # Now, try to install with whatever PM we found
-    if [ -n "$pm_base_cmd" ]; then
-        echo "  - Using '$pm_base_cmd' to install dependencies: ${missing_deps[*]}"
-        local install_cmd="$pm_base_cmd ${missing_deps[*]}"
-        if [ "$needs_sudo" = true ] && [ "$(id -u)" -ne 0 ] && command -v sudo &>/dev/null; then
-            if ! sudo -v; then abort "Sudo privileges are required."; fi
-            sudo sh -c "$install_cmd" || echo "  - Warning: Dependency installation failed for some packages."
+    if [ "$(id -u)" -ne 0 ] && [ "$SYS_PM" != "nix-env" ]; then
+        if command -v sudo &>/dev/null; then
+            SUDO_CMD="sudo"
         else
-            sh -c "$install_cmd" || echo "  - Warning: Dependency installation failed for some packages."
+            abort "This script requires sudo to install dependencies, but sudo is not available. Please install dependencies manually: ${missing_deps[*]}"
         fi
-    else
-        abort "Could not find a usable package manager and Homebrew installation failed."
-    fi
-}
-
-install_homebrew() {
-    echo "  - Homebrew not found. It will be installed to manage dependencies."
-    
-    local install_brew=false
-    if [ "$NON_INTERACTIVE" = true ]; then
-        install_brew=true
-    else
-        read -p "  - Do you want to install Homebrew now? [Y/n] " -n 1 -r; echo
-        if [[ ! $REPLY =~ ^[Nn]$ ]]; then install_brew=true; fi
     fi
 
-    if ! "$install_brew"; then
-        abort "Homebrew installation is required to proceed."
-    fi
+    echo "  - Using '$SYS_PM' to install dependencies."
 
-    # Attempt automated installation first. Run as the current user.
-    echo "  - Attempting automated Homebrew installation to $HOMEBREW_PREFIX..."
-    export NONINTERACTIVE=true
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || true
-
-    # Add brew to PATH for this session
-    if [ -x "$HOMEBREW_BREW_BIN" ]; then
-        eval "$($HOMEBREW_BREW_BIN shellenv)"
-        echo "  - Homebrew has been added to your path for this session."
-    fi
-    
-    # If automated install failed, try manual install
-    if ! command -v brew &>/dev/null; then
-        echo "  - Automated Homebrew installation failed. Attempting manual installation..."
-        if ! command -v git &>/dev/null; then
-            abort "Manual Homebrew installation requires 'git', which was not found."
-        fi
-        
-        # Clone into the chosen prefix (no sudo needed if it's in $HOME)
-        mkdir -p "$HOMEBREW_PREFIX"
-        git clone https://github.com/Homebrew/brew.git "$HOMEBREW_PREFIX/Homebrew"
-        mkdir -p "$HOMEBREW_BIN"
-        ln -sf "$HOMEBREW_PREFIX/Homebrew/bin/brew" "$HOMEBREW_BREW_BIN"
-
-        echo "  - Evaluating Homebrew shell environment..."
-        eval "$($HOMEBREW_BREW_BIN shellenv)"
-        
-        echo "  - Updating Homebrew for the first time..."
-        brew update --force --quiet
-    fi
-
-    # Final check
-    if ! command -v brew &>/dev/null; then
-        abort "Homebrew installation failed. Please install it manually and re-run this script."
-    fi
+    case $SYS_PM in
+        apt-get)
+            $SUDO_CMD apt-get update
+            $SUDO_CMD apt-get install -y "${missing_deps[@]}"
+            ;;
+        yum)
+            $SUDO_CMD yum install -y "${missing_deps[@]}"
+            ;;
+        dnf)
+            $SUDO_CMD dnf install -y "${missing_deps[@]}"
+            ;;
+        pacman)
+            $SUDO_CMD pacman -Syu --noconfirm "${missing_deps[@]}"
+            ;;
+        apk)
+            $SUDO_CMD apk update
+            $SUDO_CMD apk add "${missing_deps[@]}"
+            ;;
+        nix-env)
+            for dep in "${missing_deps[@]}"; do
+                local pkg_name=$(get_package_name "$dep" "$SYS_PM")
+                nix-env -iA "nixpkgs.$pkg_name"
+            done
+            ;;
+    esac
 }
 
 install_oh_my_shell() {
     local shell_name=$(basename "$SHELL")
-    echo -e "\n(2/6) Configuring shell environment..."
+    echo -e "\n(2/5) Configuring shell environment..."
     if [ "$shell_name" = "zsh" ] && [ ! -d "$HOME/.oh-my-zsh" ]; then
         echo "  - Oh My Zsh is recommended for the best experience."
         if [ "$NON_INTERACTIVE" = false ]; then
             read -p "  - Do you want to install Oh My Zsh now? [Y/n] " -n 1 -r; echo
             if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-                sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+                sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
             fi
         else
-            sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+            sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
         fi
     else
         echo "  - Shell environment checks passed."
@@ -217,16 +178,12 @@ install_oh_my_shell() {
 }
 
 setup_shell_config() {
-    echo -e "\n(3/6) Creating shell function and configuration..."
-    mkdir -p "$CONFIG_DIR"
+    echo -e "\n(3/5) Creating shell function and configuration..."
+    mkdir -p "$CONFIG_DIR" && echo "dir:$CONFIG_DIR" >> "$MANIFEST_FILE"
+    
     cat << EOF > "$CONFIG_SCRIPT"
 #!/bin/sh
 # Auto-generated by the workspace installer.
-
-# Add Homebrew to your PATH, if it exists
-if [ -x "$HOMEBREW_BREW_BIN" ]; then
-    eval "\$($HOMEBREW_BREW_BIN shellenv)"
-fi
 
 workspace() {
     local executable="$DEST_LINK"
@@ -255,11 +212,12 @@ _warm_workspaces() {
     fi
 }
 EOF
+    echo "file:$CONFIG_SCRIPT" >> "$MANIFEST_FILE"
     echo "  - Created $CONFIG_SCRIPT"
 }
 
 update_user_profile() {
-    echo -e "\n(4/6) Updating user's shell profile..."
+    echo -e "\n(4/5) Updating user's shell profile..."
     local shell_name=$(basename "$SHELL")
     local profile_to_update=""
 
@@ -271,30 +229,33 @@ update_user_profile() {
         return
     fi
     
-    touch "$profile_to_update" # Ensure the file exists
+    touch "$profile_to_update" 
 
     local init_block="# >>> workspace tool initialize >>>\n# This block was automatically added by the workspace installer.\n# To remove, run 'install.sh --uninstall' or simply delete this block.\nif [ -f \"$CONFIG_SCRIPT\" ]; then\n    source \"$CONFIG_SCRIPT\"\nfi\n# <<< workspace tool initialize <<<"
 
     if ! grep -q "# >>> workspace tool initialize >>>" "$profile_to_update"; then
         echo "  - Adding workspace tool initialization to $profile_to_update..."
         printf "\n%s\n" "$init_block" >> "$profile_to_update"
+        echo "profile:$profile_to_update" >> "$MANIFEST_FILE"
     else
         echo "  - Workspace tool already initialized in $profile_to_update."
     fi
+	PROFILE_UPDATED="$profile_to_update"
 }
 
 setup_executable() {
-    echo -e "\n(5/6) Setting up executable..."
-    mkdir -p "$BIN_DIR"
+    echo -e "\n(5/5) Setting up executable..."
+    mkdir -p "$BIN_DIR" && echo "dir:$BIN_DIR" >> "$MANIFEST_FILE"
     chmod +x "$SRC_SCRIPT" "$WARM_SCRIPT_PATH"
     ln -sf "$SRC_SCRIPT" "$DEST_LINK"
+    echo "file:$DEST_LINK" >> "$MANIFEST_FILE"
     echo "  - Linked $SRC_SCRIPT to $DEST_LINK"
 }
 
 first_run_experience() {
     if [ -f "$FIRST_RUN_FLAG" ]; then return; fi
 
-    echo -e "\n(6/6) First-time setup..."
+    echo -e "\n--- First-time setup ---"
     echo "Welcome to the 'workspace' tool! Let's get you configured."
 
     local default_ws_dir="$HOME/Workspaces"
@@ -313,11 +274,17 @@ first_run_experience() {
     fi
 
     touch "$FIRST_RUN_FLAG"
+    echo "file:$FIRST_RUN_FLAG" >> "$MANIFEST_FILE"
     echo "  - First-time setup complete."
 }
 
 install() {
+    rm -f "$MANIFEST_FILE"
+    mkdir -p "$CONFIG_DIR"
+    touch "$MANIFEST_FILE"
+    
     echo "Starting installation of the 'workspace' tool..."
+    
     check_dependencies
     install_oh_my_shell
     setup_shell_config
@@ -325,33 +292,72 @@ install() {
     setup_executable
     first_run_experience
 
+    echo -e "\n--- Verifying Installation ---"
+    source "$CONFIG_SCRIPT"
+    if command -v workspace &>/dev/null && workspace doctor --silent; then
+        echo "✅ Verification successful!"
+    else
+        echo "⚠️ Verification failed. Please run 'workspace doctor' for more details."
+    fi
+
     echo -e "\n--- Installation Complete ---"
-    echo "To finish, please restart your shell or run: source $HOME/.bashrc (or the equivalent for your shell)"
+    echo "To finish, please restart your shell or run: source $PROFILE_UPDATED"
 }
 
 uninstall() {
     echo "Starting uninstallation of the 'workspace' tool..."
 
     if [ "$NON_INTERACTIVE" = false ]; then
-        read -p "Are you sure you want to uninstall? This will remove the main command and configuration. [y/N] " -n 1 -r; echo
+        read -p "Are you sure you want to uninstall? This will remove everything created by the installer. [y/N] " -n 1 -r; echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then echo "Uninstallation cancelled."; exit 0; fi
     fi
 
-    echo " - Removing shell profile integration..."
-    local profile_files=("$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.profile")
-
-    for profile_file in "${profile_files[@]}"; do
-        if [ -f "$profile_file" ]; then
-            sed -i.bak '/^# >>> workspace tool initialize >>>/,/^# <<< workspace tool initialize <<</d' "$profile_file"
-            rm -f "${profile_file}.bak"
-            echo "  - Cleaned up $profile_file."
+    if [ ! -f "$MANIFEST_FILE" ]; then
+        echo "Warning: Installation manifest not found. Proceeding with a standard uninstall."
+        rm -rf "$CONFIG_DIR" "$DEST_LINK"
+        local profile_files=("$HOME/.bashrc" "$HOME/.zshrc")
+        for profile_file in "${profile_files[@]}"; do
+            if [ -f "$profile_file" ]; then
+                sed -i.bak '/^# >>> workspace tool initialize >>>/,/^# <<< workspace tool initialize <<</d' "$profile_file"
+                rm -f "${profile_file}.bak"
+            fi
+        done
+    else
+        echo " - Reading installation manifest..."
+        tac "$MANIFEST_FILE" | while IFS= read -r line; do
+            local type="${line%%:*}"
+            local path="${line#*:}"
+            
+            case "$type" in
+                profile)
+                    echo "   - Removing shell profile entry from $path..."
+                    if [ -f "$path" ]; then
+                        sed -i.bak '/^# >>> workspace tool initialize >>>/,/^# <<< workspace tool initialize <<</d' "$path"
+                        rm -f "${path}.bak"
+                    fi
+                    ;;
+                file)
+                    echo "   - Removing file: $path..."
+                    rm -f "$path"
+                    ;;
+                dir)
+                    if [ -d "$path" ] && [ -z "$(ls -A "$path")" ]; then
+                        echo "   - Removing empty directory: $path..."
+                        rmdir "$path"
+                    elif [ -d "$path" ]; then
+                         echo "   - Directory not empty, skipping: $path..."
+                    fi
+                    ;;
+            esac
+        done
+        rm -f "$MANIFEST_FILE"
+        if [ -d "$CONFIG_DIR" ] && [ -z "$(ls -A "$CONFIG_DIR")" ]; then
+            rmdir "$CONFIG_DIR"
         fi
-    done
-
-    echo " - Removing executable and configuration files..."
-    rm -rf "$CONFIG_DIR" "$DEST_LINK"
+    fi
 
     echo -e "\n--- Uninstallation Complete ---"
+    echo "Note: Dependencies installed by the system package manager were not removed."
     echo "You can now safely delete the installation directory: $INSTALL_DIR"
 }
 
@@ -364,8 +370,6 @@ main() {
             --help) show_help; exit 0 ;;
         esac
     done
-
-    if [ "$(id -u)" -eq 0 ]; then abort "This script must not be run as root."; fi
 
     install
 }
