@@ -73,6 +73,11 @@ check_dependencies() {
     echo "(1/5) Checking for dependencies..."
     detect_package_manager
 
+    # Source the nix profile if it exists, as a first measure
+    if [ -f "$HOME/.nix-profile/etc/profile.d/nix.sh" ]; then
+        . "$HOME/.nix-profile/etc/profile.d/nix.sh"
+    fi
+
     local core_deps=("sqlite3" "rsync" "git" "curl")
     local optional_deps=("fzf" "autojump")
     local missing_deps=()
@@ -100,17 +105,16 @@ check_dependencies() {
 
     if [ "$should_install" = true ]; then
         install_missing_dependencies "${missing_deps[@]}"
-        
-        # If we used nix-env, we need to source the profile to update the PATH
+
+        # If nix-env was used, the PATH needs to be manually updated for the current script instance
         if [ "$SYS_PM" = "nix-env" ]; then
-            echo "  - Sourcing Nix profile to update environment..."
-            if [ -f "$HOME/.nix-profile/etc/profile.d/nix.sh" ]; then
-                . "$HOME/.nix-profile/etc/profile.d/nix.sh"
-            fi
+            echo "  - Manually updating PATH for Nix environment..."
+            export PATH="$HOME/.nix-profile/bin:$PATH"
+            hash -r
         fi
     fi
 
-    # Final check
+    # Final check after attempting installation
     local still_missing_core_deps=()
     for cmd in "${core_deps[@]}"; do
         if ! command -v "$cmd" &>/dev/null; then
@@ -119,6 +123,9 @@ check_dependencies() {
     done
 
     if [ ${#still_missing_core_deps[@]} -gt 0 ]; then
+        echo "DEBUG: PATH is now: $PATH" >&2
+        echo "DEBUG: which sqlite3: $(which sqlite3 || echo 'not found')" >&2
+        echo "DEBUG: which rsync: $(which rsync || echo 'not found')" >&2
         abort "The following core dependencies are still missing: ${still_missing_core_deps[*]}. Please install them manually and run this script again."
     fi
 }
@@ -195,11 +202,11 @@ setup_shell_config() {
 
 workspace() {
     local executable="$DEST_LINK"
-    local output=\$($executable "\$@")
+    local output=\$($executable "$@")
     local exit_code=\$?
 
     if [ \$exit_code -eq 0 ]; then
-        if [[ "\$output" == "__cd__:"* ]]; then
+        if [[ "\$output" == "__cd__:*" ]]; then
             local dir_to_change_to=\${output#__cd__:}
             if [ -d "\$dir_to_change_to" ]; then
                 cd "\$dir_to_change_to"
@@ -326,7 +333,7 @@ uninstall() {
         local profile_files=("$HOME/.bashrc" "$HOME/.zshrc")
         for profile_file in "${profile_files[@]}"; do
             if [ -f "$profile_file" ]; then
-                sed -i.bak '/^# >>> workspace tool initialize >>>/,/^# <<< workspace tool initialize <<</d' "$profile_file"
+                sed -i.bak 's/^# >>> workspace tool initialize >>>.*# <<< workspace tool initialize <<<$//' "$profile_file"
                 rm -f "${profile_file}.bak"
             fi
         done
@@ -340,7 +347,7 @@ uninstall() {
                 profile)
                     echo "   - Removing shell profile entry from $path..."
                     if [ -f "$path" ]; then
-                        sed -i.bak '/^# >>> workspace tool initialize >>>/,/^# <<< workspace tool initialize <<</d' "$path"
+                        sed -i.bak 's/^# >>> workspace tool initialize >>>.*# <<< workspace tool initialize <<<$//' "$path"
                         rm -f "${path}.bak"
                     fi
                     ;;

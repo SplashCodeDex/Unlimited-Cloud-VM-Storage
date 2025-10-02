@@ -3,7 +3,7 @@
 # --- Shared Configuration for Ephemeral Workspace Scripts ---
 
 # Core paths
-export WORKSPACE_BASE_DIR="$HOME/workspaces"
+export WORKSPACE_BASE_DIR="/home/user/Workspaces"
 export EPHEMERAL_CACHE_DIR="/tmp/dev_cache"
 
 # Database file for workspace history
