@@ -6,6 +6,7 @@
 
   # Use https://search.nixos.org/packages to find packages
   packages = [
+    pkgs.ncurses
     pkgs.autojump
     pkgs.fzf
     pkgs.rsync
@@ -57,13 +58,6 @@
 
   # Shell hook to customize the workspace shell
   shellHook = ''
-    # Make the workspace script executable
-    chmod +x ${toString ./scripts/workspace}
-
-    # Add the scripts directory to the PATH
-    export PATH=${toString ./scripts}:$PATH
-
-    # Source autojump
-    source ${pkgs.autojump}/etc/profile.d/autojump.sh
+    source "/home/user/.config/workspace/workspace.sh" # workspace-hook  
   '';
 }

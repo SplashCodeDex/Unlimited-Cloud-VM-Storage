@@ -176,21 +176,18 @@ update_nix_dependencies() {
     echo "  - Adding dependencies to '$NIX_CONFIG_FILE'..."
     create_nix_config_if_not_exists
     local deps_to_add=("$@")
-    local temp_nix_file=$(mktemp)
-
-    cp "$NIX_CONFIG_FILE" "$temp_nix_file"
 
     for dep in "${deps_to_add[@]}"; do
         local pkg_name=$(get_package_name "$dep" "nix")
         # Avoid adding duplicate packages
-        if ! grep -q "pkgs.$pkg_name" "$temp_nix_file"; then
-            awk -v pkg="    pkgs.$pkg_name" '/packages = \[/{print; print pkg; next}1' "$temp_nix_file" > "$NIX_CONFIG_FILE"
-            cp "$NIX_CONFIG_FILE" "$temp_nix_file"
+        if ! grep -q "$pkg_name" "$NIX_CONFIG_FILE"; then
+            # Add the dependency to the packages list
+            sed -i.bak "/];/i \    pkgs.$pkg_name" "$NIX_CONFIG_FILE" || abort "Failed to add dependency $pkg_name to $NIX_CONFIG_FILE"
             echo "    - Added '$pkg_name'"
         fi
     done
 
-    rm -f "$temp_nix_file"
+    rm -f "${NIX_CONFIG_FILE}.bak"
 }
 
 install_missing_dependencies() {
@@ -304,24 +301,21 @@ update_nix_shell_hook() {
         return
     fi
 
-    local temp_nix_file=$(mktemp)
-    cp "$NIX_CONFIG_FILE" "$temp_nix_file"
-
     # If shellHook exists...
-    if grep -q "shellHook" "$temp_nix_file"; then
+    if grep -q "shellHook" "$NIX_CONFIG_FILE"; then
         # If it's an empty shellHook = '', replace it.
-        if grep -q "shellHook\s*=\s*''\s*;" "$temp_nix_file"; then
-            awk -v hook="shellHook = ''\n${hook_addition}\n'';" '{gsub(/shellHook\s*=\s*''\s*;/, hook)}1' "$temp_nix_file" > "$NIX_CONFIG_FILE"
+        if grep -q "shellHook\s*=\s*''\s*;" "$NIX_CONFIG_FILE"; then
+            sed -i.bak "s|shellHook\s*=\s*''\s*;|shellHook = ''\n${hook_addition}\n'';|" "$NIX_CONFIG_FILE"
         else
             # If it's a multi-line one, add the line before the closing '';
-            awk -v hook="${hook_addition}" '/shellHook/ {print; print hook; next}1' "$temp_nix_file" > "$NIX_CONFIG_FILE"
+            sed -i.bak "/'';/i \ ${hook_addition}" "$NIX_CONFIG_FILE"
         fi
     else
         # If shellHook does not exist, add it.
         echo -e "\nshellHook = ''\n${hook_addition}\n'';" >> "$NIX_CONFIG_FILE"
     fi
 
-    rm -f "$temp_nix_file"
+    rm -f "${NIX_CONFIG_FILE}.bak"
 
     echo "  - Updated shellHook in $NIX_CONFIG_FILE."
     echo "profile:$NIX_CONFIG_FILE" >> "$MANIFEST_FILE"
@@ -492,9 +486,9 @@ uninstall() {
 uninstall_nix_dependencies() {
     echo "   - Removing dependencies from $NIX_CONFIG_FILE..."
     if [ -f "$NIX_CONFIG_FILE" ]; then
-        local temp_nix_file=$(mktemp)
-        grep -v 'pkgs.sqlite' "$NIX_CONFIG_FILE" | grep -v 'pkgs.ncurses' | grep -v 'pkgs.fzf' | grep -v 'pkgs.autojump' > "$temp_nix_file"
-        mv "$temp_nix_file" "$NIX_CONFIG_FILE"
+        # Remove lines containing the workspace-dependency comment
+        sed -i.bak '/# workspace-dependency/d' "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
+        rm -f "${NIX_CONFIG_FILE}.bak"
     fi
 }
 
@@ -502,19 +496,17 @@ uninstall_nix_shell_hook() {
     echo "   - Removing shellHook entry from $NIX_CONFIG_FILE..."
     if [ ! -f "$NIX_CONFIG_FILE" ]; then return; fi
 
-    local temp_nix_file=$(mktemp)
-
     # Remove only the line added by this script.
-    grep -v '# workspace-hook' "$NIX_CONFIG_FILE" > "$temp_nix_file"
+    sed -i.bak '/source .*workspace.sh" # workspace-hook/d' "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
 
     # If shellHook becomes empty (only contains '' or whitespace), remove it completely.
-    if ! grep -q 'source' "$temp_nix_file"; then
-        grep -v "shellHook" "$temp_nix_file" > "$NIX_CONFIG_FILE"
-    else
-        mv "$temp_nix_file" "$NIX_CONFIG_FILE"
+    if grep -q "shellHook\s*=\s*''\s*''\s*;" "$NIX_CONFIG_FILE"; then
+        local temp_nix_file=$(mktemp)
+        grep -v "shellHook" "$NIX_CONFIG_FILE" > "$temp_nix_file" || true
+        mv "$temp_nix_file" "$NIX_CONFIG_FILE" || abort "Failed to clean up empty shellHook"
     fi
 
-    rm -f "$temp_nix_file"
+    rm -f "${NIX_CONFIG_FILE}.bak"
     echo "  - Updated shellHook in $NIX_CONFIG_FILE."
 }
 
