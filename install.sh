@@ -5,13 +5,13 @@
 
 set -e # Exit on any error
 
-# --- Globals ---
+# --- Globals -- -
 NON_INTERACTIVE=false
 PROFILE_UPDATED=""
 SYS_PM=""
 SUDO_CMD=""
 
-# --- Configuration ---
+# --- Configuration -- -
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 BIN_DIR="$INSTALL_DIR/bin"
 SRC_SCRIPT="$INSTALL_DIR/scripts/workspace"
@@ -21,6 +21,7 @@ CONFIG_SCRIPT="$CONFIG_DIR/workspace.sh"
 WARM_SCRIPT_PATH="$INSTALL_DIR/scripts/warm_workspaces.sh"
 FIRST_RUN_FLAG="$CONFIG_DIR/.first_run_completed"
 MANIFEST_FILE="$CONFIG_DIR/install-manifest.txt"
+NIX_CONFIG_FILE=".idx/dev.nix"
 
 # --- Helper Functions ---
 
@@ -40,13 +41,17 @@ abort() {
     exit 1
 }
 
+is_nix_environment() {
+    [ -f "$NIX_CONFIG_FILE" ]
+}
+
 detect_package_manager() {
-    if command -v apt-get &>/dev/null; then SYS_PM="apt-get";
+    if is_nix_environment; then SYS_PM="nix";
+    elif command -v apt-get &>/dev/null; then SYS_PM="apt-get";
     elif command -v yum &>/dev/null; then SYS_PM="yum";
     elif command -v dnf &>/dev/null; then SYS_PM="dnf";
     elif command -v pacman &>/dev/null; then SYS_PM="pacman";
     elif command -v apk &>/dev/null; then SYS_PM="apk";
-    elif command -v nix-env &>/dev/null; then SYS_PM="nix-env";
     else
         SYS_PM="unknown"
     fi
@@ -57,7 +62,7 @@ get_package_name() {
     local pm="$2"
 
     case "$pm" in
-        nix-env)
+        nix)
             case "$generic_name" in
                 sqlite3) echo "sqlite" ;;
                 *) echo "$generic_name" ;;
@@ -72,11 +77,6 @@ get_package_name() {
 check_dependencies() {
     echo "(1/5) Checking for dependencies..."
     detect_package_manager
-
-    # Source the nix profile if it exists, as a first measure
-    if [ -f "$HOME/.nix-profile/etc/profile.d/nix.sh" ]; then
-        . "$HOME/.nix-profile/etc/profile.d/nix.sh"
-    fi
 
     local core_deps=("sqlite3" "rsync" "git" "curl")
     local optional_deps=("fzf" "autojump")
@@ -99,19 +99,12 @@ check_dependencies() {
     if [ "$NON_INTERACTIVE" = true ]; then
         should_install=true
     else
-        read -p "This script can attempt to install them for you using the system package manager. May I proceed? [Y/n] " -n 1 -r; echo
+        read -p "This script can attempt to install them for you. May I proceed? [Y/n] " -n 1 -r; echo
         if [[ ! $REPLY =~ ^[Nn]$ ]]; then should_install=true; fi
     fi
 
     if [ "$should_install" = true ]; then
         install_missing_dependencies "${missing_deps[@]}"
-
-        # If nix-env was used, the PATH needs to be manually updated for the current script instance
-        if [ "$SYS_PM" = "nix-env" ]; then
-            echo "  - Manually updating PATH for Nix environment..."
-            export PATH="$HOME/.nix-profile/bin:$PATH"
-            hash -r
-        fi
     fi
 
     # Final check after attempting installation
@@ -123,31 +116,57 @@ check_dependencies() {
     done
 
     if [ ${#still_missing_core_deps[@]} -gt 0 ]; then
-        echo "DEBUG: PATH is now: $PATH" >&2
-        echo "DEBUG: which sqlite3: $(which sqlite3 || echo 'not found')" >&2
-        echo "DEBUG: which rsync: $(which rsync || echo 'not found')" >&2
-        abort "The following core dependencies are still missing: ${still_missing_core_deps[*]}. Please install them manually and run this script again."
+        if [ "$SYS_PM" = "nix" ]; then
+            abort "Dependencies have been added to your '$NIX_CONFIG_FILE'. Please reload your environment to continue the installation."
+        else
+            abort "The following core dependencies are still missing: ${still_missing_core_deps[*]}. Please install them manually and run this script again."
+        fi
     fi
+}
+
+update_nix_dependencies() {
+    echo "  - Adding dependencies to '$NIX_CONFIG_FILE'..."
+    local deps_to_add=("$@")
+
+    # Ensure there is a packages list
+    if ! grep -q "packages" "$NIX_CONFIG_FILE"; then
+        sed -i.bak '/{/a \  packages = with pkgs; [\n  ];' "$NIX_CONFIG_FILE" || abort "Failed to add packages list to $NIX_CONFIG_FILE"
+    fi
+
+    for dep in "${deps_to_add[@]}"; do
+        local pkg_name=$(get_package_name "$dep" "nix")
+        # Avoid adding duplicate packages
+        if ! grep -q "$pkg_name" "$NIX_CONFIG_FILE"; then
+            # Check if packages are in a single line
+            if grep -q "packages = with pkgs; \[[^]]*];" "$NIX_CONFIG_FILE"; then
+                sed -i.bak "s/packages = with pkgs; \[[^]]*];/packages = with pkgs; [ $pkg_name # workspace-dependency ];/" "$NIX_CONFIG_FILE" || abort "Failed to add dependency $pkg_name to $NIX_CONFIG_FILE"
+            else
+                sed -i.bak "/packages = with pkgs; \[/
+
+a    $pkg_name # workspace-dependency
+
+" "$NIX_CONFIG_FILE" || abort "Failed to add dependency $pkg_name to $NIX_CONFIG_FILE"
+            fi
+            echo "    - Added '$pkg_name'"
+        fi
+    done
+
+    rm -f "${NIX_CONFIG_FILE}.bak"
 }
 
 install_missing_dependencies() {
     local missing_deps=("$@")
-    
+
     if [ "$SYS_PM" = "unknown" ]; then
         abort "Could not detect a supported package manager. Please install the missing dependencies manually: ${missing_deps[*]}"
-    fi
-
-    if [ "$(id -u)" -ne 0 ] && [ "$SYS_PM" != "nix-env" ]; then
-        if command -v sudo &>/dev/null; then
-            SUDO_CMD="sudo"
-        else
-            abort "This script requires sudo to install dependencies, but sudo is not available. Please install dependencies manually: ${missing_deps[*]}"
-        fi
     fi
 
     echo "  - Using '$SYS_PM' to install dependencies."
 
     case $SYS_PM in
+        nix)
+            update_nix_dependencies "${missing_deps[@]}"
+            ;;
         apt-get)
             $SUDO_CMD apt-get update
             $SUDO_CMD apt-get install -y "${missing_deps[@]}"
@@ -165,12 +184,6 @@ install_missing_dependencies() {
             $SUDO_CMD apk update
             $SUDO_CMD apk add "${missing_deps[@]}"
             ;;
-        nix-env)
-            for dep in "${missing_deps[@]}"; do
-                local pkg_name=$(get_package_name "$dep" "$SYS_PM")
-                nix-env -iA "nixpkgs.$pkg_name"
-            done
-            ;;
     esac
 }
 
@@ -185,7 +198,7 @@ install_oh_my_shell() {
                 sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
             fi
         else
-            sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+            echo "  - Skipping Oh My Zsh installation in non-interactive mode."
         fi
     else
         echo "  - Shell environment checks passed."
@@ -195,29 +208,29 @@ install_oh_my_shell() {
 setup_shell_config() {
     echo -e "\\n(3/5) Creating shell function and configuration..."
     mkdir -p "$CONFIG_DIR" && echo "dir:$CONFIG_DIR" >> "$MANIFEST_FILE"
-    
+
     cat << EOF > "$CONFIG_SCRIPT"
 #!/bin/sh
 # Auto-generated by the workspace installer.
 
 workspace() {
     local executable="$DEST_LINK"
-    local output=\$("$executable" "\$@")
-    local exit_code=\$?
+    local output=\\$("$executable" "\\$@")
+    local exit_code=\\$?
 
-    if [ \$exit_code -eq 0 ]; then
-        if [[ "\$output" == "__cd__:"* ]]; then
-            local dir_to_change_to=\${output#__cd__:}
-            if [ -d "\$dir_to_change_to" ]; then
-                cd "\$dir_to_change_to"
+    if [ \\$exit_code -eq 0 ]; then
+        if [[ "\\$output" == "__cd__:"* ]]; then
+            local dir_to_change_to=\\${output#__cd__:}
+            if [ -d "\\$dir_to_change_to" ]; then
+                cd "\\$dir_to_change_to"
             else
-                echo "Error: Target directory '\$dir_to_change_to' does not exist." >&2
+                echo "Error: Target directory '\\$dir_to_change_to' does not exist." >&2
             fi
         else
-            echo "\$output"
+            echo "\\$output"
         fi
     else
-        echo "\$output" >&2
+        echo "\\$output" >&2
     fi
 }
 
@@ -232,6 +245,34 @@ EOF
 }
 
 update_user_profile() {
+    if is_nix_environment; then
+        update_nix_shell_hook
+    else
+        update_standard_shell
+    fi
+}
+
+update_nix_shell_hook() {
+    echo -e "\\n(4/5) Updating Nix shell hook..."
+
+    local hook_line="source \\\"$CONFIG_SCRIPT\\\" # workspace-hook"
+
+    if ! grep -q "shellHook" "$NIX_CONFIG_FILE"; then
+        # Add a new shellHook
+        sed -i.bak '/^}/ i \  shellHook = ''\\n    ''${pkgs.lib.escapeShellArg ''\\n      '"$hook_line"'\\n    }' "$NIX_CONFIG_FILE" || abort "Failed to add shellHook to $NIX_CONFIG_FILE"
+        echo "  - Created and configured shellHook in $NIX_CONFIG_FILE."
+    else
+        # Append to existing shellHook
+        sed -i.bak "/shellHook =/a \        '"$hook_line"' \\'" "$NIX_CONFIG_FILE" || abort "Failed to update shellHook in $NIX_CONFIG_FILE"
+        echo "  - Updated shellHook in $NIX_CONFIG_FILE."
+    fi
+
+    rm -f "${NIX_CONFIG_FILE}.bak"
+    echo "profile:$NIX_CONFIG_FILE" >> "$MANIFEST_FILE"
+    PROFILE_UPDATED="Nix environment"
+}
+
+update_standard_shell() {
     echo -e "\\n(4/5) Updating user's shell profile..."
     local shell_name=$(basename "$SHELL")
     local profile_to_update=""
@@ -240,13 +281,15 @@ update_user_profile() {
     if [ "$shell_name" = "zsh" ]; then profile_to_update="$HOME/.zshrc"; fi
 
     if [ -z "$profile_to_update" ]; then
-        echo "Warning: Unsupported shell '$shell_name'. Manual configuration of your shell profile is required." >&2
+        echo "Warning: Unsupported shell '$shell_name'."
+        echo "Please manually add the following line to your shell's profile file (e.g., ~/.profile, ~/.config/fish/config.fish):"
+        echo "    if [ -f \"$CONFIG_SCRIPT\" ]; then source \"$CONFIG_SCRIPT\"; fi"
         return
     fi
-    
-    touch "$profile_to_update" 
 
-    local init_block="# >>> workspace tool initialize >>>\\n# This block was automatically added by the workspace installer.\\n# To remove, run 'install.sh --uninstall' or simply delete this block.\\nif [ -f \\"$CONFIG_SCRIPT\\" ]; then\\n    source \\"$CONFIG_SCRIPT\\"\\nfi\\n# <<< workspace tool initialize <<<"
+    touch "$profile_to_update"
+
+    local init_block="# >>> workspace tool initialize >>>\\\\n# This block was automatically added by the workspace installer.\\\\n# To remove, run 'install.sh --uninstall' or simply delete this block.\\\\nif [ -f \\\\\"$CONFIG_SCRIPT\\\\\" ]; then\\\\n    source \\\\\"$CONFIG_SCRIPT\\\\\"\\\\nfi\\\\n# <<< workspace tool initialize <<<"
 
     if ! grep -q "# >>> workspace tool initialize >>>" "$profile_to_update"; then
         echo "  - Adding workspace tool initialization to $profile_to_update..."
@@ -283,7 +326,7 @@ first_run_experience() {
 
     local config_sh_path="$INSTALL_DIR/scripts/config.sh"
     if [ -f "$config_sh_path" ]; then
-        sed -i.bak "s|^export WORKSPACE_BASE_DIR=.*|export WORKSPACE_BASE_DIR=\\"$ws_dir\\"|" "$config_sh_path"
+        sed -i.bak "s|^export WORKSPACE_BASE_DIR=.*|export WORKSPACE_BASE_DIR=\\\\"$ws_dir\\\\"|" "$config_sh_path" || abort "Failed to set workspace base directory"
         rm -f "${config_sh_path}.bak"
         echo "  - Workspace base directory set to: $ws_dir"
     fi
@@ -297,9 +340,9 @@ install() {
     rm -f "$MANIFEST_FILE"
     mkdir -p "$CONFIG_DIR"
     touch "$MANIFEST_FILE"
-    
+
     echo "Starting installation of the 'workspace' tool..."
-    
+
     check_dependencies
     install_oh_my_shell
     setup_shell_config
@@ -329,11 +372,17 @@ uninstall() {
 
     if [ ! -f "$MANIFEST_FILE" ]; then
         echo "Warning: Installation manifest not found. Proceeding with a standard uninstall."
+
+        if is_nix_environment; then
+            uninstall_nix_shell_hook
+            uninstall_nix_dependencies
+        fi
+
         rm -rf "$CONFIG_DIR" "$DEST_LINK"
         local profile_files=("$HOME/.bashrc" "$HOME/.zshrc")
         for profile_file in "${profile_files[@]}"; do
             if [ -f "$profile_file" ]; then
-                sed -i.bak 's/^# >>> workspace tool initialize >>>.*# <<< workspace tool initialize <<<$//' "$profile_file"
+                sed -i.bak 's/^# >>> workspace tool initialize >>>.*# <<< workspace tool initialize <<<$//' "$profile_file" >/dev/null 2>&1 || true
                 rm -f "${profile_file}.bak"
             fi
         done
@@ -342,13 +391,18 @@ uninstall() {
         tac "$MANIFEST_FILE" | while IFS= read -r line; do
             local type="${line%%:*}"
             local path="${line#*:}"
-            
+
             case "$type" in
                 profile)
-                    echo "   - Removing shell profile entry from $path..."
-                    if [ -f "$path" ]; then
-                        sed -i.bak 's/^# >>> workspace tool initialize >>>.*# <<< workspace tool initialize <<<$//' "$path"
-                        rm -f "${path}.bak"
+                    if [ "$path" = "$NIX_CONFIG_FILE" ]; then
+                        uninstall_nix_shell_hook
+                        uninstall_nix_dependencies
+                    else
+                        echo "   - Removing shell profile entry from $path..."
+                        if [ -f "$path" ]; then
+                            sed -i.bak 's/^# >>> workspace tool initialize >>>.*# <<< workspace tool initialize <<<$//' "$path" >/dev/null 2>&1 || true
+                            rm -f "${path}.bak"
+                        fi
                     fi
                     ;;
                 file)
@@ -374,6 +428,26 @@ uninstall() {
     echo -e "\\n--- Uninstallation Complete ---"
     echo "Note: Dependencies installed by the system package manager were not removed."
     echo "You can now safely delete the installation directory: $INSTALL_DIR"
+}
+
+uninstall_nix_dependencies() {
+    echo "   - Removing dependencies from $NIX_CONFIG_FILE..."
+    if [ -f "$NIX_CONFIG_FILE" ]; then
+        sed -i.bak '/ # workspace-dependency/d' "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
+        rm -f "${NIX_CONFIG_FILE}.bak"
+    fi
+}
+
+uninstall_nix_shell_hook() {
+    echo "   - Removing shellHook entry from $NIX_CONFIG_FILE..."
+    if [ -f "$NIX_CONFIG_FILE" ]; then
+        sed -i.bak '/ # workspace-hook/d' "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
+        # Clean up empty shellHook
+        if grep -q "shellHook = ''\\n  '';" "$NIX_CONFIG_FILE"; then
+            sed -i.bak "/shellHook = ''\\n  '';/d" "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
+        fi
+        rm -f "${NIX_CONFIG_FILE}.bak"
+    fi
 }
 
 # --- Main Script ---
