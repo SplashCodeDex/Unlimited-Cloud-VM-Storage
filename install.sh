@@ -15,6 +15,7 @@ SUDO_CMD=""
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 BIN_DIR="$INSTALL_DIR/bin"
 SRC_SCRIPT="$INSTALL_DIR/scripts/workspace"
+VISUAL_EFFECTS_SCRIPT="$INSTALL_DIR/scripts/visual_effects.sh" # Added visual effects script
 DEST_LINK="$BIN_DIR/workspace"
 CONFIG_DIR="$HOME/.config/workspace"
 CONFIG_SCRIPT="$CONFIG_DIR/workspace.sh"
@@ -65,6 +66,7 @@ get_package_name() {
         nix)
             case "$generic_name" in
                 sqlite3) echo "sqlite" ;;
+                ncurses) echo "ncurses" ;; # Added for tput
                 *) echo "$generic_name" ;;
             esac
             ;;
@@ -78,7 +80,7 @@ check_dependencies() {
     echo "(1/5) Checking for dependencies..."
     detect_package_manager
 
-    local core_deps=("sqlite3" "rsync" "git" "curl")
+    local core_deps=("sqlite3" "rsync" "git" "curl" "ncurses") # Added ncurses for tput
     local optional_deps=("fzf" "autojump")
     local missing_deps=()
 
@@ -99,7 +101,8 @@ check_dependencies() {
     if [ "$NON_INTERACTIVE" = true ]; then
         should_install=true
     else
-        read -p "This script can attempt to install them for you. May I proceed? [Y/n] " -n 1 -r; echo
+        echo -n "This script can attempt to install them for you. May I proceed? [Y/n] "
+        read -r REPLY
         if [[ ! $REPLY =~ ^[Nn]$ ]]; then should_install=true; fi
     fi
 
@@ -136,7 +139,7 @@ update_nix_dependencies() {
     for dep in "${deps_to_add[@]}"; do
         local pkg_name=$(get_package_name "$dep" "nix")
         # Avoid adding duplicate packages
-        if ! grep -q "[" ]$pkg_name[" ]" "$NIX_CONFIG_FILE"; then
+        if ! grep -q "[ ]$pkg_name[ ]" "$NIX_CONFIG_FILE"; then
             # Add the dependency to the packages list
             sed -i.bak "/packages\s*=\s*with pkgs;\s*\[/a \    $pkg_name # workspace-dependency" "$NIX_CONFIG_FILE" || abort "Failed to add dependency $pkg_name to $NIX_CONFIG_FILE"
             echo "    - Added '$pkg_name'"
@@ -185,7 +188,8 @@ install_oh_my_shell() {
     if [ "$shell_name" = "zsh" ] && [ ! -d "$HOME/.oh-my-zsh" ]; then
         echo "  - Oh My Zsh is recommended for the best experience."
         if [ "$NON_INTERACTIVE" = false ]; then
-            read -p "  - Do you want to install Oh My Zsh now? [Y/n] " -n 1 -r; echo
+            echo -n "  - Do you want to install Oh My Zsh now? [Y/n] "
+            read -r REPLY
             if [[ ! $REPLY =~ ^[Nn]$ ]]; then
                 sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
             fi
@@ -296,7 +300,7 @@ update_standard_shell() {
 setup_executable() {
     echo -e "\n(5/5) Setting up executable..."
     mkdir -p "$BIN_DIR" && echo "dir:$BIN_DIR" >> "$MANIFEST_FILE"
-    chmod +x "$SRC_SCRIPT" "$WARM_SCRIPT_PATH"
+    chmod +x "$SRC_SCRIPT" "$WARM_SCRIPT_PATH" "$VISUAL_EFFECTS_SCRIPT" # Made visual effects script executable
     ln -sf "$SRC_SCRIPT" "$DEST_LINK"
     echo "file:$DEST_LINK" >> "$MANIFEST_FILE"
     echo "  - Linked $SRC_SCRIPT to $DEST_LINK"
@@ -312,7 +316,8 @@ first_run_experience() {
     local ws_dir=""
 
     if [ "$NON_INTERACTIVE" = false ]; then
-        read -p "Enter the base directory for your workspaces (default: $default_ws_dir): " ws_dir
+        echo -n "Enter the base directory for your workspaces (default: $default_ws_dir): "
+        read -r ws_dir
     fi
     ws_dir=${ws_dir:-$default_ws_dir}
 
@@ -358,7 +363,8 @@ uninstall() {
     echo "Starting uninstallation of the 'workspace' tool..."
 
     if [ "$NON_INTERACTIVE" = false ]; then
-        read -p "Are you sure you want to uninstall? This will remove everything created by the installer. [y/N] " -n 1 -r; echo
+        echo -n "Are you sure you want to uninstall? This will remove everything created by the installer. [y/N] "
+        read -r REPLY
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then echo "Uninstallation cancelled."; exit 0; fi
     fi
 
@@ -437,8 +443,8 @@ uninstall_nix_shell_hook() {
         # Remove the line containing the workspace-hook comment
         sed -i.bak '/# workspace-hook/d' "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
         # If the shellHook is now empty, remove the entire block
-        if grep -q "shellHook\s*=\s*''\s*'';" "$NIX_CONFIG_FILE"; then
-            sed -i.bak "/shellHook\s*=\s*''\s*'';/d" "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
+        if grep -q "shellHook\s*=\s*''\s*''" "$NIX_CONFIG_FILE"; then
+            sed -i.bak "/shellHook\s*=\s*''\s*''/d" "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
         fi
         rm -f "${NIX_CONFIG_FILE}.bak"
     fi
