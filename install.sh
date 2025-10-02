@@ -83,22 +83,42 @@ create_nix_config_if_not_exists() {
     mkdir -p ".idx"
     cat << EOF > "$NIX_CONFIG_FILE"
 {
-  # To learn more about how to configure your workspace, see https://www.project-idx.dev/docs/config-idx-json
-  # The following are examples of common configurations.
+  # To learn more about how to use Nix to configure your environment
+  # see: https://firebase.google.com/docs/studio/customize-workspace
+  pkgs, ... }:
+  {
+    # Which nixpkgs channel to use.
+    channel = "stable-24.05"; # or "unstable"
 
-  # A list of extensions to install.
-  # extensions = [
-  #   "vscodevim.vim"
-  # ];
+    # Use https://search.nixos.org/packages to find packages
+    packages = [
+    ];
 
-  # A list of packages to install.
-  # packages = [
-  #   "go",
-  #   "python3"
-  # ];
+    # Sets environment variables in the workspace
+    env = {};
 
-  # A command to run when the workspace starts.
-  # startup_command = "echo 'Welcome to your new workspace!'";
+    idx = {
+      # Search for the extensions you want on https://open-vsx.org/ and use "publisher.id"
+      extensions = [];
+
+      # Enable previews
+      previews = {
+        enable = true;
+        previews = {};
+      };
+
+      # Workspace lifecycle hooks
+      workspace = {
+        # Runs when a workspace is first created
+        onCreate = {};
+        # Runs when the workspace is (re)started
+        onStart = {};
+      };
+    };
+
+    # Shell hook to customize the workspace shell
+    shellHook = ''
+    '';
 }
 EOF
 }
@@ -146,9 +166,7 @@ check_dependencies() {
     done
 
     if [ ${#still_missing_core_deps[@]} -gt 0 ]; then
-        if [ "$SYS_PM" = "nix" ]; then
-            abort "Dependencies have been added to your '$NIX_CONFIG_FILE'. Please reload your environment to continue the installation."
-        else
+        if [ "$SYS_PM" != "nix" ]; then
             abort "The following core dependencies are still missing: ${still_missing_core_deps[*]}. Please install them manually and run this script again."
         fi
     fi
@@ -159,17 +177,12 @@ update_nix_dependencies() {
     create_nix_config_if_not_exists
     local deps_to_add=("$@")
 
-    # Ensure there is a packages list
-    if ! grep -q "packages" "$NIX_CONFIG_FILE"; then
-        sed -i.bak '/{/a \  packages = with pkgs; [\n  ];' "$NIX_CONFIG_FILE" || abort "Failed to add packages list to $NIX_CONFIG_FILE"
-    fi
-
     for dep in "${deps_to_add[@]}"; do
         local pkg_name=$(get_package_name "$dep" "nix")
         # Avoid adding duplicate packages
-        if ! grep -q "[ ]$pkg_name[ ]" "$NIX_CONFIG_FILE"; then
+        if ! grep -q "$pkg_name" "$NIX_CONFIG_FILE"; then
             # Add the dependency to the packages list
-            sed -i.bak "/packages\s*=\s*with pkgs;\s*\[/a \    $pkg_name # workspace-dependency" "$NIX_CONFIG_FILE" || abort "Failed to add dependency $pkg_name to $NIX_CONFIG_FILE"
+            sed -i.bak "/];/i \    pkgs.$pkg_name" "$NIX_CONFIG_FILE" || abort "Failed to add dependency $pkg_name to $NIX_CONFIG_FILE"
             echo "    - Added '$pkg_name'"
         fi
     done
@@ -280,17 +293,29 @@ update_nix_shell_hook() {
     echo -e "\n(4/5) Updating Nix shell hook..."
     create_nix_config_if_not_exists
 
-    local hook_addition="source \"$CONFIG_SCRIPT\" # workspace-hook"
-    local temp_nix_file=$(mktemp)
+    local hook_addition="    source \"$CONFIG_SCRIPT\" # workspace-hook"
 
-    # Remove existing shellHook, if any
-    grep -v "shellHook" "$NIX_CONFIG_FILE" > "$temp_nix_file" || true
+    # If the hook is already there, do nothing.
+    if grep -q "# workspace-hook" "$NIX_CONFIG_FILE"; then
+        echo "  - Nix shell hook already present in $NIX_CONFIG_FILE."
+        return
+    fi
 
-    # Add the new shellHook
-    echo -e "\nshellHook = ''\n${hook_addition}\n'';" >> "$temp_nix_file"
+    # If shellHook exists...
+    if grep -q "shellHook" "$NIX_CONFIG_FILE"; then
+        # If it's an empty shellHook = '', replace it.
+        if grep -q "shellHook\s*=\s*''\s*;" "$NIX_CONFIG_FILE"; then
+            sed -i.bak "s|shellHook\s*=\s*''\s*;|shellHook = ''\n${hook_addition}\n'';|" "$NIX_CONFIG_FILE"
+        else
+            # If it's a multi-line one, add the line before the closing '';
+            sed -i.bak "/'';/i \ ${hook_addition}" "$NIX_CONFIG_FILE"
+        fi
+    else
+        # If shellHook does not exist, add it.
+        echo -e "\nshellHook = ''\n${hook_addition}\n'';" >> "$NIX_CONFIG_FILE"
+    fi
 
-    # Replace the original file with the updated one
-    mv "$temp_nix_file" "$NIX_CONFIG_FILE" || abort "Failed to update Nix config file"
+    rm -f "${NIX_CONFIG_FILE}.bak"
 
     echo "  - Updated shellHook in $NIX_CONFIG_FILE."
     echo "profile:$NIX_CONFIG_FILE" >> "$MANIFEST_FILE"
@@ -471,21 +496,24 @@ uninstall_nix_shell_hook() {
     echo "   - Removing shellHook entry from $NIX_CONFIG_FILE..."
     if [ ! -f "$NIX_CONFIG_FILE" ]; then return; fi
 
-    local temp_nix_file=$(mktemp)
+    # Remove only the line added by this script.
+    sed -i.bak '/source .*workspace.sh" # workspace-hook/d' "$NIX_CONFIG_FILE" >/dev/null 2>&1 || true
 
-    # Remove the shellHook from the original file and write to a temp file
-    grep -v "shellHook" "$NIX_CONFIG_FILE" > "$temp_nix_file" || true
+    # If shellHook becomes empty (only contains '' or whitespace), remove it completely.
+    if grep -q "shellHook\s*=\s*''\s*''\s*;" "$NIX_CONFIG_FILE"; then
+        local temp_nix_file=$(mktemp)
+        grep -v "shellHook" "$NIX_CONFIG_FILE" > "$temp_nix_file" || true
+        mv "$temp_nix_file" "$NIX_CONFIG_FILE" || abort "Failed to clean up empty shellHook"
+    fi
 
-    # Replace the original file with the updated one
-    mv "$temp_nix_file" "$NIX_CONFIG_FILE" || abort "Failed to update Nix config file"
-
+    rm -f "${NIX_CONFIG_FILE}.bak"
     echo "  - Updated shellHook in $NIX_CONFIG_FILE."
 }
 
 
 # --- Main Script ---
 main() {
-    if [ "$(id -u)" -ne 0 ] && [ -z "$SUDO_CMD" ]; then
+    if ! is_nix_environment && [ "$(id -u)" -ne 0 ] && [ -z "$SUDO_CMD" ]; then
         if command -v sudo &>/dev/null; then
             SUDO_CMD="sudo"
         else
