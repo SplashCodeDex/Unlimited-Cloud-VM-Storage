@@ -1,0 +1,85 @@
+{
+  "name": "unlimited-cloud-vm-storage",
+  "displayName": "Unlimited Cloud VM Storage",
+  "description": "Manage your ephemeral workspaces with ease.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:workspacesView"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "workspaces.open",
+        "title": "Open Workspace"
+      },
+      {
+        "command": "workspaces.refreshEntry",
+        "title": "Refresh"
+      },
+      {
+        "command": "workspaces.warm",
+        "title": "Warm Workspace"
+      },
+      {
+        "command": "workspaces.doctor",
+        "title": "Run Doctor"
+      },
+      {
+        "command": "workspaces.delete",
+        "title": "Delete Workspace"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "workspacesView",
+          "name": "Workspaces"
+        }
+      ]
+    },
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "workspaces.open",
+          "when": "view == workspacesView",
+          "group": "inline"
+        },
+        {
+          "command": "workspaces.warm",
+          "when": "view == workspacesView"
+        },
+        {
+          "command": "workspaces.doctor",
+          "when": "view == workspacesView"
+        },
+        {
+          "command": "workspaces.delete",
+          "when": "view == workspacesView"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "node ./test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@types/glob": "^8.0.0",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "16.x",
+    "eslint": "^8.28.0",
+    "glob": "^8.0.3",
+    "mocha": "^10.1.0",
+    "typescript": "^4.9.3",
+    "@vscode/test-electron": "^2.2.0"
+  }
+}

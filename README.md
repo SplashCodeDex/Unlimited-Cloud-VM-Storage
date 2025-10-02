@@ -1,6 +1,6 @@
-# Unlimited-Cloud-VM-Storage: The Intelligent Ephemeral Workspace Manager To Increase Your Google Cloudshell, GitHub Codespaces, Gitpod, Firebase Studio free 5GB and 15GB to Unlimited and avoid the 'Not enough Space/Storage' problem.
+# Unlimited-Cloud-VM-Storage: The Intelligent Ephemeral Workspace Manager
 
-**Tired of hitting storage limits on Google Cloud Shell? Juggling projects across GitHub Codespaces, Gitpod, Firebase Studio and other remote VMs? `Unlimited-Cloud-VM-Storage` is the seamless solution for a clean, efficient, and unified workflow.**
+**Tired of hitting storage limits on Google Cloud Shell? Juggling projects across GitHub Codespaces, Gitpod, or other remote VMs? `Unlimited-Cloud-VM-Storage` is the seamless solution for a clean, efficient, and unified workflow.**
 
 `Unlimited-Cloud-VM-Storage` is a powerful command-line tool for creating and managing ephemeral development environments. It keeps your home directory pristine and your workflow laser-focused by creating temporary, isolated workspaces for each of your projects. Its intelligent history system learns your habits, always presenting your most relevant projects first, no matter the platform.
 
@@ -18,10 +18,10 @@
 
 `Unlimited-Cloud-VM-Storage` is the ultimate workspace manager for developers who work in a variety of ephemeral environments. Its lightweight and portable nature means you can have a consistent and efficient workflow, no matter where you code.
 
-- **GitHub Codespaces:** Instantly switch between projects without the delay of creating and provisioning new Codespaces. Keep your environment clean and your productivity high.
-- **Google Cloud Shell & Firebase:** Say goodbye to the 5GB storage limit. `Unlimited-Cloud-VM-Storage` manages all your projects in temporary storage, keeping your home directory lean and your sessions fast.
-- **Gitpod:** Supercharge Gitpod's "fresh workspace" philosophy. `Unlimited-Cloud-VM-Storage` gives you an intelligent, persistent history of your projects, ready to be checked out in an instant.
-- **AWS Cloud9 & Any Remote VM:** Standardize your development workflow across all your remote machines. `Unlimited-Cloud-VM-Storage` provides a consistent, powerful, and portable experience everywhere.
+- **GitHub Codespaces:** Instantly switch between projects without the delay of creating and provisioning new Codespaces.
+- **Google Cloud Shell & Firebase:** Say goodbye to the 5GB storage limit. `Unlimited-Cloud-VM-Storage` manages all your projects in temporary storage.
+- **Gitpod:** Supercharge Gitpod's "fresh workspace" philosophy with an intelligent, persistent history of your projects.
+- **AWS Cloud9 & Any Remote VM:** Standardize your development workflow across all your remote machines.
 
 ---
 
@@ -29,18 +29,28 @@
 
 | Feature | Description |
 | --- | --- |
-| **⚡️ Ephemeral Workspaces** | Creates clean, isolated project directories in temporary storage. This keeps your `$HOME` directory pristine and elegantly sidesteps storage limitations on any platform. |
-| **🧠 Intelligent History** | Uses a "frecency" (frequency + recency) algorithm to rank your projects. The workspaces you use most often are always just a keypress away. |
-| **🌐 Platform Agnostic** | Excels in any modern, cloud-based development environment, including GitHub Codespaces, Google Cloud Shell, Firebase, Gitpod, AWS Cloud9, and any other remote VM. |
-| **📌 Pinned Projects** | Pin your most important projects to keep them at the top of the list and ensure they are always "warm" (pre-cloned and ready to go) in the background. |
-| **✅ Git-Aware Health** | Provides a "health check" that warns you about uncommitted changes or if your local branch is behind the remote, preventing you from losing work. |
-| **🚀 Simple & Portable** | A single, portable shell script with minimal, common dependencies. The robust installer handles dependency checks and integrates with your shell, while the uninstaller ensures a clean removal. |
-| **🧪 Automated Testing** | A full suite of tests ensures the stability and reliability of the project as it grows, guaranteeing that new features don't break existing functionality. |
+| **🎨 VS Code Extension** | A rich, graphical UI to manage workspaces directly within VS Code. View, open, warm, and manage your projects without leaving the editor. |
+| **⚡️ Ephemeral Workspaces** | Creates clean, isolated project directories in temporary storage, elegantly sidestepping storage limitations on any platform. |
+| **🧠 Intelligent History** | Uses a "frecency" (frequency + recency) algorithm to rank your projects so your most used workspaces are always a keypress away. |
+| **🌐 Platform Agnostic** | Excels in any modern, cloud-based development environment, including GitHub Codespaces, Google Cloud Shell, and any other remote VM. |
 | **👁️ Git-Aware UI** | The interactive menu shows you the current Git branch and status of each workspace, so you can see what you were working on at a glance. |
-| **🤖 Smart Integration** | Seamlessly integrates with your existing tools. It can use `autojump` to find projects outside the standard workspace directory, and `fzf` for a powerful interactive menu. |
-| **🩺 Health Checks** | The `workspace doctor` command runs a full suite of diagnostics to ensure your environment is healthy and your configuration is correct. |
-| **🚀 Non-Invasive Installation** | The smart installer respects your existing shell configuration (`.bashrc`, `.zshrc`, etc.) and adds itself in a non-destructive way. Uninstallation is just as clean. |
-| **🧪 Automated Testing** | A full suite of tests ensures the stability and reliability of the project as it grows, guaranteeing that new features don\'t break existing functionality. |
+| **🤖 Smart Integration** | Seamlessly integrates with existing tools like `autojump` to find projects and `fzf` for a powerful interactive menu. |
+| **🩺 Health Checks** | The `workspace doctor` command runs a full suite of diagnostics to ensure your environment is healthy and configured correctly. |
+| **🚀 Non-Invasive Installation**| The smart installer respects your existing shell configuration and adds itself non-destructively. Uninstallation is just as clean. |
+| **🧪 Automated Testing** | A full suite of tests ensures the stability and reliability of the project as it grows. |
+
+---
+
+## ✨ Now with a VS Code Extension!
+
+Take your workflow to the next level with the official **Unlimited-Cloud-VM-Storage VS Code Extension**. It brings the power of the `workspace` command directly into your editor with a rich, graphical interface.
+
+- **Workspace Tree View:** See all your available workspaces in the VS Code sidebar.
+- **Rich Git Status:** Instantly know the branch and status (clean, modified, behind) of every project.
+- **One-Click Actions:** Open, warm, or delete workspaces directly from the context menu.
+- **Seamless Integration:** The extension uses the `workspace --json` command for a fast and reliable experience.
+
+Find it in the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=your-publisher.unlimited-cloud-vm-storage) (placeholder link).
 
 ---
 
@@ -62,19 +72,7 @@ cd Unlimited-Cloud-VM-Storage
 source ~/.bashrc  # or ~/.zshrc, ~/.bash_profile
 ```
 
-The installer is designed to be robust and resilient. It will:
-
-*   **Check for dependencies** and offer to install them for you.
-   **Guide you through a first-time setup** to configure your workspace directory.
-*   **Non-invasively integrate with your shell** for a seamless experience.
-
 ### Uninstallation
-
-We believe a great tool should be as easy to remove as it is to install. The uninstaller will:
-
-*   **Remove all traces of the tool** from your system.
-*   **Cleanly unload the shell function**, making the removal immediate.
-*   **Optionally remove all user data**, including your workspace history and cached repositories.
 
 ```bash
 # Navigate to the project directory and run the installer with the --uninstall flag
@@ -90,38 +88,23 @@ The `workspace` command is designed to be intuitive and fast.
 #### Create or Switch to a Workspace
 
 ```bash
-# You can use a full git URL
+# Use a full git URL, a project name, or a local path
 workspace https://github.com/your-username/your-project.git
-
-# Or just the project name
-workspace your-project
-
-# Or a local path
-workspace /path/to/my/existing/project
 ```
-The script will clone the repo into an ephemeral workspace and drop you into the directory. If you run the same command again, it will instantly take you back to that same workspace.
 
 #### View Your Workspace History
 
-Simply run `workspace` with no arguments to see your "frecency"-ranked list of projects.
-Simply run `workspace` with no arguments to see your "frecency"-ranked list of projects in a beautiful, interactive `fzf` menu.
+Run `workspace` with no arguments to see your "frecency"-ranked list of projects in an interactive menu.
 
 ```bash
 workspace
 ```
-Output:
-```
-    >   [✓] (main)         your-most-important-project  /home/user/Workspaces/your-most-important-project
-      [!M] (feature/new-ui) another-frequent-project   /home/user/Workspaces/another-frequent-project
-      [✓] (develop)      less-used-project            /home/user/Workspaces/less-used-project
-```
 
 #### Commands
 
-`workspace` also comes with a few helpful sub-commands:
-
-*   `workspace warm`: Fetches the latest changes for all your Git-based workspaces in the background.
+*   `workspace warm`: Fetches the latest changes for all your Git-based workspaces.
 *   `workspace doctor`: Runs a health check on your environment to diagnose and fix common issues.
+*   `workspace --json`: Outputs a machine-readable list of all workspaces, used by the VS Code extension.
 
 ---
 
@@ -130,7 +113,6 @@ Output:
 We're just getting started. Our vision is to make `workspace` an indispensable part of the modern development workflow. Here's what we're thinking about for the future:
 
 - [ ] **Workspace Templates:** Quickly start new projects (e.g., `workspace new --template=react-vite`) with pre-configured boilerplate.
-- [ ] **VS Code Extension:** A graphical user interface within your favorite editor to manage your workspaces.
 
 Have an idea? We'd love to hear it!
 

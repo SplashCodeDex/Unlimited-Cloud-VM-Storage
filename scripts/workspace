@@ -25,6 +25,7 @@ A tool for creating, managing, and switching between ephemeral development works
 COMMANDS:
   warm          Manually refresh all Git-based workspaces by fetching the latest changes.
   doctor        Check for common problems and offer solutions.
+  --json        Output a JSON list of workspaces for machine consumption.
   --help        Show this help message.
 
 MODES:
@@ -53,7 +54,7 @@ _link_configs() {
 
     echo "Linking configurations from $CONFIG_FILE_PATH..." >&2
     while IFS= read -r item || [[ -n "$item" ]]; do
-        if [[ "$item" =~ ^\s*# ]] || [ -z "$item" ]; then continue; fi
+        if [[ "$item" =~ ^\\s*# ]] || [ -z "$item" ]; then continue; fi
         if [[ "$item" == ".bashrc" || "$item" == ".profile" || "$item" == ".zshrc" || "$item" == ".zprofile" ]]; then continue; fi
 
         local source_path="$HOME/$item"
@@ -86,7 +87,7 @@ _symlink_artifacts() {
     local override_file="$project_path/.workspace_symlinks"
     if [ -f "$override_file" ]; then
         echo "  - Found override file: .workspace_symlinks" >&2
-        while IFS= read -r line; do [[ "$line" =~ ^\s*# ]] || [ -z "$line" ] && continue; manual_dirs+=("$line"); done < "$override_file"
+        while IFS= read -r line; do [[ "$line" =~ ^\\s*# ]] || [ -z "$line" ] && continue; manual_dirs+=("$line"); done < "$override_file"
     fi
 
     local candidate_dirs=()
@@ -162,15 +163,57 @@ _update_history() {
 _get_git_status() {
     local path="$1"
     if [ ! -d "$path/.git" ]; then echo ""; return; fi
+
+    # Colors
+    local GREEN='\\033[0;32m'
+    local YELLOW='\\033[0;33m'
+    local RED='\\033[0;31m'
+    local NC='\\033[0m' # No Color
+
     local branch=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    local last_commit_date=$(git -C "$path" log -1 --format=%cr 2>/dev/null)
     local status
+    local color
+
     if ! git -C "$path" diff-index --quiet HEAD --; then
         status="[!M]"
+        color="$YELLOW"
     else
-        status="[✓]"
+        # Check if behind remote
+        git -C "$path" fetch --quiet
+        if [ $(git -C "$path" rev-list HEAD...@{u} --count) -gt 0 ]; then
+            status="[↓]"
+            color="$RED"
+        else
+            status="[✓]"
+            color="$GREEN"
+        fi
     fi
-    echo "$status ($branch)"
+
+    echo -e "${color}${status}${NC} ($branch) - ${last_commit_date}"
 }
+
+_get_git_status_json() {
+    local path="$1"
+    if [ ! -d "$path/.git" ]; then echo "non-git|||"; return; fi
+
+    local branch=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    local last_commit_date=$(git -C "$path" log -1 --format=%cr 2>/dev/null)
+    local status
+
+    if ! git -C "$path" diff-index --quiet HEAD --; then
+        status="modified"
+    else
+        git -C "$path" fetch --quiet
+        if [ $(git -C "$path" rev-list HEAD...@{u} --count) -gt 0 ]; then
+            status="behind"
+        else
+            status="clean"
+        fi
+    fi
+    echo "$status|$branch|$last_commit_date"
+}
+
 
 _handle_interactive_selection() {
     if [ ! -f "$DB_FILE" ]; then
@@ -194,7 +237,7 @@ _handle_interactive_selection() {
         fzf_input=$(echo "$db_output" | while IFS='|' read -r path last_access; do
             local project_name=$(basename "$path")
             local git_status=$(_get_git_status "$path")
-            printf "  %-15s %-40s %s\\n" "$git_status" "$project_name" "$path"
+            printf "%s %-40s %s\n" "$git_status" "$project_name" "$path"
         done)
 
         local selected_line
@@ -207,7 +250,7 @@ _handle_interactive_selection() {
         echo "$db_output" | while IFS='|' read -r path last_access; do
             local project_name=$(basename "$path")
             local git_status=$(_get_git_status "$path")
-            printf "  %2d: %-10s %s\\n" "$i" "$git_status" "$project_name" >&2
+            echo -e "  $i: $git_status $project_name" >&2
             paths[$i]="$path"
             i=$((i+1))
         done
@@ -229,6 +272,46 @@ _handle_interactive_selection() {
     else
         echo "Cancelled." >&2
         exit 0
+    fi
+}
+
+_handle_json_output() {
+    if [ ! -f "$DB_FILE" ]; then echo "[]"; exit 0; fi
+
+    local db_output
+    db_output=$(sqlite3 -separator '|' "$DB_FILE" \
+        "SELECT path, git_url, last_access FROM workspaces ORDER BY (frequency / (strftime('%s','now') - last_access + 1)) DESC, last_access DESC LIMIT 50;")
+
+    if [ -z "$db_output" ]; then echo "[]"; exit 0; fi
+
+    if command -v jq &>/dev/null; then
+        echo "$db_output" | while IFS='|' read -r path git_url last_access; do
+            local project_name=$(basename "$path")
+            local git_status_str=$(_get_git_status_json "$path")
+            local status=$(echo "$git_status_str" | cut -d'|' -f1)
+            local branch=$(echo "$git_status_str" | cut -d'|' -f2)
+            local last_commit_date=$(echo "$git_status_str" | cut -d'|' -f3)
+
+            jq -n --arg name "$project_name" --arg path "$path" --arg git_url "$git_url" \
+                  --arg branch "$branch" --arg status "$status" --arg last_commit "$last_commit_date" \
+                  --arg last_access "$last_access" \
+                  '{name: $name, path: $path, git_url: $git_url, branch: $branch, status: $status, last_commit: $last_commit, last_access: $last_access}'
+        done | jq -s '.'
+    else
+        echo "["
+        first=true
+        echo "$db_output" | while IFS='|' read -r path git_url last_access; do
+            if [ "$first" = true ]; then first=false; else echo ","; fi
+            local project_name=$(basename "$path")
+            local git_status_str=$(_get_git_status_json "$path")
+            local status=$(echo "$git_status_str" | cut -d'|' -f1)
+            local branch=$(echo "$git_status_str" | cut -d'|' -f2)
+            local last_commit_date=$(echo "$git_status_str" | cut -d'|' -f3)
+            
+            printf '{"name": "%s", "path": "%s", "git_url": "%s", "branch": "%s", "status": "%s", "last_commit": "%s", "last_access": "%s"}' \
+                "$project_name" "$path" "$git_url" "$branch" "$status" "$last_commit_date" "$last_access"
+        done
+        echo "]"
     fi
 }
 
@@ -327,7 +410,14 @@ doctor() {
         echo "OK"
     fi
 
-    echo -n "2. Checking shell integration: "
+    echo -n "2. Checking for jq (optional but recommended for VS Code extension): "
+    if ! command -v jq &>/dev/null; then
+        echo "WARNING (jq is not installed)"
+    else
+        echo "OK"
+    fi
+
+    echo -n "3. Checking shell integration: "
     local shell_name=$(basename "$SHELL")
     local profile_file=""
     if [ "$shell_name" = "bash" ]; then profile_file="$HOME/.bashrc";
@@ -339,14 +429,14 @@ doctor() {
         echo "OK"
     fi
 
-    echo -n "3. Checking database file: "
+    echo -n "4. Checking database file: "
     if [ ! -f "$DB_FILE" ]; then
         echo "WARNING (Database not found, will be created on next run)"
     else
         echo "OK"
     fi
 
-    echo -n "4. Checking workspace directory: "
+    echo -n "5. Checking workspace directory: "
     if [ ! -d "$WORKSPACE_BASE_DIR" ]; then
         echo "WARNING (Base directory '$WORKSPACE_BASE_DIR' not found)"
     else
@@ -365,6 +455,7 @@ main() {
         --help|-h) show_help; exit 0 ;;
         warm) bash "$WARM_SCRIPT_PATH"; echo "Workspace warming complete."; exit 0 ;;
         doctor) doctor; exit 0 ;;
+        --json) _handle_json_output; exit 0 ;;
         -*)
             echo "Error: Unknown option '$1'" >&2
             show_help >&2

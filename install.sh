@@ -100,6 +100,14 @@ check_dependencies() {
 
     if [ "$should_install" = true ]; then
         install_missing_dependencies "${missing_deps[@]}"
+        
+        # If we used nix-env, we need to source the profile to update the PATH
+        if [ "$SYS_PM" = "nix-env" ]; then
+            echo "  - Sourcing Nix profile to update environment..."
+            if [ -f "$HOME/.nix-profile/etc/profile.d/nix.sh" ]; then
+                . "$HOME/.nix-profile/etc/profile.d/nix.sh"
+            fi
+        fi
     fi
 
     # Final check
