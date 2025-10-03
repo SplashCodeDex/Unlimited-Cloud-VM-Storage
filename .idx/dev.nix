@@ -1,6 +1,6 @@
 { pkgs, ... }: {
   # Which nixpkgs channel to use.
-  channel = "stable-24.05"; # or "unstable"
+  channel = "unstable"; # "stable-24.05" or "unstable"
 
   # Use https://search.nixos.org/packages to find packages
   packages = with pkgs; [
@@ -12,7 +12,8 @@
     git
     curl
     jq
-    gcc          # Includes the GCC compiler needed for ncurses development
+    gcc       # Includes the GCC compiler needed for ncurses development
+    nerd-fonts.fira-code
   ];
 
 
