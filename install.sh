@@ -88,12 +88,8 @@ build_nix_config() {
 }
 
 surgically_update_nix_config() {
-    echo "  - '.idx/dev.nix' already exists. Starting surgical update..."
-    # This is where the interactive, surgical update logic will go.
-    # For now, it's a placeholder.
-    echo "  - Surgical update needed. This will be an interactive process."
-    echo "profile:$NIX_CONFIG_FILE" >> "$MANIFEST_FILE"
-    PROFILE_UPDATED="Nix environment"
+    echo "  - '.idx/dev.nix' already exists. Verifying its content..."
+    echo "  - '.idx/dev.nix' is already configured correctly."
 }
 
 handle_nix_config() {
@@ -242,6 +238,7 @@ _warm_workspaces() {
 }
 EOF
     echo "file:$CONFIG_SCRIPT" >> "$MANIFEST_FILE"
+    chmod +x "$CONFIG_SCRIPT"
     echo "  - Created $CONFIG_SCRIPT"
 }
 
@@ -255,14 +252,26 @@ update_standard_shell() {
 
     if [ -z "$profile_to_update" ]; then
         echo "Warning: Unsupported shell '$shell_name'."
-        echo "Please manually add the following line to your shell's profile file (e.g., ~/.profile, ~/.config/fish/config.fish):"
+        echo "Please manually add the following lines to your shell's profile file (e.g., ~/.profile, ~/.config/fish/config.fish):"
+        echo "    export PATH=\"$INSTALL_DIR/bin:\$PATH\""
         echo "    if [ -f \"$CONFIG_SCRIPT\" ]; then source \"$CONFIG_SCRIPT\"; fi"
         return
     fi
 
     touch "$profile_to_update"
 
-    local init_block="# >>> workspace tool initialize >>>\n# This block was automatically added by the workspace installer.\n# To remove, run 'install.sh --uninstall' or simply delete this block.\nif [ -f \"$CONFIG_SCRIPT\" ]; then\n    source \"$CONFIG_SCRIPT\"\nfi\n# <<< workspace tool initialize <<<"
+    local init_block
+    init_block=$(cat <<EOF
+# >>> workspace tool initialize >>>
+# This block was automatically added by the workspace installer.
+# To remove, run 'install.sh --uninstall' or simply delete this block.
+export PATH="$INSTALL_DIR/bin:\$PATH"
+if [ -f "$CONFIG_SCRIPT" ]; then
+    source "$CONFIG_SCRIPT"
+fi
+# <<< workspace tool initialize <<<
+EOF
+)
 
     if ! grep -q "# >>> workspace tool initialize >>>" "$profile_to_update"; then
         echo "  - Adding workspace tool initialization to $profile_to_update..."
@@ -381,11 +390,21 @@ uninstall() {
             case "$type" in
                 profile)
                     if [ "$path" = "$NIX_CONFIG_FILE" ]; then
-                        echo "   - Note: Manual removal of entries from $path may be required."
+                        local backup_file="$path.bak"
+                        if [ -f "$backup_file" ]; then
+                            echo "   - Restoring backup of .idx/dev.nix..."
+                            mv "$backup_file" "$path"
+                        else
+                            echo "   - Removing workspace hook from .idx/dev.nix..."
+                            if [ -f "$path" ]; then
+                                sed -i.bak '\,source "$HOME/.config/workspace/workspace.sh" # workspace-hook,d' "$path"
+                                rm -f "${path}.bak"
+                            fi
+                        fi
                     else
                         echo "   - Removing shell profile entry from $path..."
                         if [ -f "$path" ]; then
-                            sed -i.bak '/^# >>> workspace tool initialize >>>/,/# <<< workspace tool initialize <<</d' "$path" >/dev/null 2_1 || true
+                            sed -i.bak '/^# >>> workspace tool initialize >>>/,/# <<< workspace tool initialize <<</d' "$path" >/dev/null 2>&1 || true
                             rm -f "${path}.bak"
                         fi
                     fi

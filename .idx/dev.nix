@@ -3,22 +3,27 @@
   channel = "stable-24.05"; # or "unstable"
 
   # Use https://search.nixos.org/packages to find packages
-  packages = [
-  
+  packages = with pkgs; [
+    ncurses      # Correctly adds the ncurses library
+    autojump
+    fzf
+    rsync
+    sqlite
+    git
+    curl
+    jq
+    gcc          # Includes the GCC compiler needed for ncurses development
   ];
+
 
   # Sets environment variables in the workspace
   env = {};
-
-  # This is the correct place to define shellHook
-  shellHook = ''
-    sourcesd "/home/user/Unlimited-Cloud-VM-Storage/scripts/workspace"
-  '';
 
   idx = {
     # Search for the extensions you want on https://open-vsx.org/ and use "publisher.id"
     extensions = [
       # "vscodevim.vim"
+      "google.gemini-cli-vscode-ide-companion"
     ];
 
     # Enable previews
@@ -41,18 +46,15 @@
     # Workspace lifecycle hooks
     workspace = {
       # Runs when a workspace is first created
+        workspace-hook = "source $HOME/.config/workspace/workspace.sh";
       onCreate = {
+        workspace-hook = "source $HOME/.config/workspace/workspace.sh";
         # Example: install JS dependencies from NPM
         # npm-install = "npm install";
       };
       # Runs when the workspace is (re)started
       onStart = {
-        # The 'source' command is defined in shellHook.
-        # This will not work as a standalone onStart hook.
-        # workspace-hook = "source /home/user/Unlimited-Cloud-VM-Storage/scripts/workspace";
-
-        # Example: start a background task to watch and re-build backend code
-        # watch-backend = "npm run watch-backend";
+        workspace-hook = "source $HOME/.config/workspace/workspace.sh";
       };
     };
   };
