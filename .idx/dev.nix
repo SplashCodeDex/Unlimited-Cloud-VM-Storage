@@ -17,7 +17,12 @@
 
 
   # Sets environment variables in the workspace
-  env = {};
+  env = {
+    PATH = [
+      "/home/user/Unlimited-Cloud-VM-Storage/bin"
+      # The rest of the default PATH will be included automatically
+    ];
+  };
 
   idx = {
     # Search for the extensions you want on https://open-vsx.org/ and use "publisher.id"
@@ -46,15 +51,14 @@
     # Workspace lifecycle hooks
     workspace = {
       # Runs when a workspace is first created
-        workspace-hook = "source $HOME/.config/workspace/workspace.sh";
       onCreate = {
-        workspace-hook = "source $HOME/.config/workspace/workspace.sh";
+        workspace-hook-on-create = "source $HOME/.config/workspace/workspace.sh";
         # Example: install JS dependencies from NPM
         # npm-install = "npm install";
       };
       # Runs when the workspace is (re)started
       onStart = {
-        workspace-hook = "source $HOME/.config/workspace/workspace.sh";
+        workspace-hook-on-start = "source $HOME/.config/workspace/workspace.sh";
       };
     };
   };
