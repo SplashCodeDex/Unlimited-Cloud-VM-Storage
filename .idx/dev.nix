@@ -55,9 +55,4 @@
       };
     };
   };
-
-  # Shell hook to customize the workspace shell
-  shellHook = ''
-    source "/home/user/.config/workspace/workspace.sh" # workspace-hook  
-  '';
 }
