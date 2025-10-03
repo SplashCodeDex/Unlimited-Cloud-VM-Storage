@@ -4,7 +4,14 @@
 
   # Use https://search.nixos.org/packages to find packages
   packages = [
-  
+   pkgs.ncurses
+    pkgs.autojump
+    pkgs.fzf
+    pkgs.rsync
+    pkgs.sqlite
+    pkgs.git
+    pkgs.curl
+    pkgs.jq
   ];
 
   # Sets environment variables in the workspace
@@ -12,7 +19,7 @@
 
   # This is the correct place to define shellHook
   shellHook = ''
-    sourcesd "/home/user/Unlimited-Cloud-VM-Storage/scripts/workspace"
+    source "/home/user/Unlimited-Cloud-VM-Storage/scripts/workspace"
   '';
 
   idx = {

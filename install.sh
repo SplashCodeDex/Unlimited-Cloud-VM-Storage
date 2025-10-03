@@ -15,7 +15,7 @@ SUDO_CMD=""
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 BIN_DIR="$INSTALL_DIR/bin"
 SRC_SCRIPT="$INSTALL_DIR/scripts/workspace"
-VISUAL_EFFECTS_SCRIPT="$INSTALL_DIR/scripts/visual_effects.sh" # Added visual effects script
+VISUAL_EFFECTS_SCRIPT="$INSTALL_DIR/scripts/visual_effects.sh"
 DEST_LINK="$BIN_DIR/workspace"
 CONFIG_DIR="$HOME/.config/workspace"
 CONFIG_SCRIPT="$CONFIG_DIR/workspace.sh"
@@ -66,74 +66,56 @@ get_package_name() {
         nix)
             case "$generic_name" in
                 sqlite3) echo "sqlite" ;;
-                ncurses) echo "ncurses" ;; # Added for tput
+                ncurses) echo "ncurses" ;;
                 *) echo "$generic_name" ;;
             esac
-            ;;
+            ;; 
         *)
             echo "$generic_name"
-            ;;
+            ;; 
     esac
 }
 
-create_nix_config_if_not_exists() {
-    if [ -f "$NIX_CONFIG_FILE" ]; then return; fi
+# --- Nix Configuration ---
 
-    echo "  - Creating default '$NIX_CONFIG_FILE'..."
+build_nix_config() {
+    echo "  - Creating new '.idx/dev.nix' from template..."
     mkdir -p ".idx"
-    cat << EOF > "$NIX_CONFIG_FILE"
-{
-  # To learn more about how to use Nix to configure your environment
-  # see: https://firebase.google.com/docs/studio/customize-workspace
-  pkgs, ... }:
-  {
-    # Which nixpkgs channel to use.
-    channel = "stable-24.05"; # or "unstable"
-
-    # Use https://search.nixos.org/packages to find packages
-    packages = [
-    ];
-
-    # Sets environment variables in the workspace
-    env = {};
-
-    idx = {
-      # Search for the extensions you want on https://open-vsx.org/ and use "publisher.id"
-      extensions = [];
-
-      # Enable previews
-      previews = {
-        enable = true;
-        previews = {};
-      };
-
-      # Workspace lifecycle hooks
-      workspace = {
-        # Runs when a workspace is first created
-        onCreate = {};
-        # Runs when the workspace is (re)started
-        onStart = {};
-      };
-    };
-
-    # Shell hook to customize the workspace shell
-    shellHook = ''
-    '';
+    cp "templates/dev.nix.template" "$NIX_CONFIG_FILE"
+    echo "  - Successfully created new '$NIX_CONFIG_FILE'."
+    echo "profile:$NIX_CONFIG_FILE" >> "$MANIFEST_FILE"
+    PROFILE_UPDATED="Nix environment"
 }
-EOF
+
+surgically_update_nix_config() {
+    echo "  - '.idx/dev.nix' already exists. Starting surgical update..."
+    # This is where the interactive, surgical update logic will go.
+    # For now, it's a placeholder.
+    echo "  - Surgical update needed. This will be an interactive process."
+    echo "profile:$NIX_CONFIG_FILE" >> "$MANIFEST_FILE"
+    PROFILE_UPDATED="Nix environment"
 }
+
+handle_nix_config() {
+    if [ ! -f "$NIX_CONFIG_FILE" ]; then
+        build_nix_config
+    else
+        surgically_update_nix_config
+    fi
+}
+
+# --- Dependency and Shell Management ---
 
 check_dependencies() {
     echo "(1/5) Checking for dependencies..."
-    detect_package_manager
 
-    local core_deps=("sqlite3" "rsync" "git" "curl" "ncurses") # Added ncurses for tput
+    local core_deps=("sqlite3" "rsync" "git" "curl" "ncurses")
     local optional_deps=("fzf" "autojump")
     local missing_deps=()
 
     for cmd in "${core_deps[@]}" "${optional_deps[@]}"; do
         if ! command -v "$cmd" &>/dev/null; then
-            missing_deps+=("$cmd")
+            missing_deps+=( "$cmd" )
         fi
     done
 
@@ -143,6 +125,11 @@ check_dependencies() {
     fi
 
     echo "Warning: The following dependencies are missing: ${missing_deps[*]}"
+
+    if [ "$SYS_PM" = "nix" ]; then
+        echo "  - Dependencies have been added to '.idx/dev.nix'. Please restart your shell for them to be available."
+        return
+    fi
 
     local should_install=false
     if [ "$NON_INTERACTIVE" = true ]; then
@@ -161,40 +148,17 @@ check_dependencies() {
     local still_missing_core_deps=()
     for cmd in "${core_deps[@]}"; do
         if ! command -v "$cmd" &>/dev/null; then
-            still_missing_core_deps+=("$cmd")
+            still_missing_core_deps+=( "$cmd" )
         fi
     done
 
     if [ ${#still_missing_core_deps[@]} -gt 0 ]; then
-        if [ "$SYS_PM" != "nix" ]; then
-            abort "The following core dependencies are still missing: ${still_missing_core_deps[*]}. Please install them manually and run this script again."
-        fi
+        abort "The following core dependencies are still missing: ${still_missing_core_deps[*]}. Please install them manually and run this script again."
     fi
 }
 
-update_nix_dependencies() {
-    echo "  - Adding dependencies to '$NIX_CONFIG_FILE'..."
-    create_nix_config_if_not_exists
-    local deps_to_add=("$@")
-    local temp_nix_file=$(mktemp)
-
-    cp "$NIX_CONFIG_FILE" "$temp_nix_file"
-
-    for dep in "${deps_to_add[@]}"; do
-        local pkg_name=$(get_package_name "$dep" "nix")
-        # Avoid adding duplicate packages
-        if ! grep -q "pkgs.$pkg_name" "$temp_nix_file"; then
-            awk -v pkg="    pkgs.$pkg_name" '/packages = \[/{print; print pkg; next}1' "$temp_nix_file" > "$NIX_CONFIG_FILE"
-            cp "$NIX_CONFIG_FILE" "$temp_nix_file"
-            echo "    - Added '$pkg_name'"
-        fi
-    done
-
-    rm -f "$temp_nix_file"
-}
-
 install_missing_dependencies() {
-    local missing_deps=("$@")
+    local missing_deps=($@)
 
     if [ "$SYS_PM" = "unknown" ]; then
         abort "Could not detect a supported package manager. Please install the missing dependencies manually: ${missing_deps[*]}"
@@ -203,26 +167,23 @@ install_missing_dependencies() {
     echo "  - Using '$SYS_PM' to install dependencies."
 
     case $SYS_PM in
-        nix)
-            update_nix_dependencies "${missing_deps[@]}"
-            ;;
         apt-get)
             $SUDO_CMD apt-get update
             $SUDO_CMD apt-get install -y "${missing_deps[@]}"
-            ;;
+            ;; 
         yum)
             $SUDO_CMD yum install -y "${missing_deps[@]}"
-            ;;
+            ;; 
         dnf)
             $SUDO_CMD dnf install -y "${missing_deps[@]}"
-            ;;
+            ;; 
         pacman)
             $SUDO_CMD pacman -Syu --noconfirm "${missing_deps[@]}"
-            ;;
+            ;; 
         apk)
             $SUDO_CMD apk update
             $SUDO_CMD apk add "${missing_deps[@]}"
-            ;;
+            ;; 
     esac
 }
 
@@ -255,22 +216,22 @@ setup_shell_config() {
 
 workspace() {
     local executable="$DEST_LINK"
-    local output=\$("$executable" "\$@")
-    local exit_code=\$?
+    local output="$($executable "$@")"
+    local exit_code="$?"
 
-    if [ \$exit_code -eq 0 ]; then
-        if [[ "\$output" == "__cd__:"* ]]; then
-            local dir_to_change_to=\${output#__cd__:}
-            if [ -d "\$dir_to_change_to" ]; then
-                cd "\$dir_to_change_to"
+    if [ "$exit_code" -eq 0 ]; then
+        if [[ "$output" == "__cd__:"* ]]; then
+            local dir_to_change_to="${output#__cd__:}"
+            if [ -d "$dir_to_change_to" ]; then
+                cd "$dir_to_change_to"
             else
-                echo "Error: Target directory '\$dir_to_change_to' does not exist." >&2
+                echo "Error: Target directory '$dir_to_change_to' does not exist." >&2
             fi
         else
-            echo "\$output"
+            echo "$output"
         fi
     else
-        echo "\$output" >&2
+        echo "$output" >&2
     fi
 }
 
@@ -283,51 +244,6 @@ EOF
     echo "file:$CONFIG_SCRIPT" >> "$MANIFEST_FILE"
     echo "  - Created $CONFIG_SCRIPT"
 }
-
-update_user_profile() {
-    if is_nix_environment; then
-        update_nix_shell_hook
-    else
-        update_standard_shell
-    fi
-}
-
-update_nix_shell_hook() {
-    echo -e "\n(4/5) Updating Nix shell hook..."
-    create_nix_config_if_not_exists
-
-    local hook_addition="    source \"$CONFIG_SCRIPT\" # workspace-hook"
-
-    # If the hook is already there, do nothing.
-    if grep -q "# workspace-hook" "$NIX_CONFIG_FILE"; then
-        echo "  - Nix shell hook already present in $NIX_CONFIG_FILE."
-        return
-    fi
-
-    local temp_nix_file=$(mktemp)
-    cp "$NIX_CONFIG_FILE" "$temp_nix_file"
-
-    # If shellHook exists...
-    if grep -q "shellHook" "$temp_nix_file"; then
-        # If it's an empty shellHook = '', replace it.
-        if grep -q "shellHook\s*=\s*''\s*;" "$temp_nix_file"; then
-            awk -v hook="shellHook = ''\n${hook_addition}\n'';" '{gsub(/shellHook\s*=\s*''\s*;/, hook)}1' "$temp_nix_file" > "$NIX_CONFIG_FILE"
-        else
-            # If it's a multi-line one, add the line before the closing '';
-            awk -v hook="${hook_addition}" '/shellHook/ {print; print hook; next}1' "$temp_nix_file" > "$NIX_CONFIG_FILE"
-        fi
-    else
-        # If shellHook does not exist, add it.
-        echo -e "\nshellHook = ''\n${hook_addition}\n'';" >> "$NIX_CONFIG_FILE"
-    fi
-
-    rm -f "$temp_nix_file"
-
-    echo "  - Updated shellHook in $NIX_CONFIG_FILE."
-    echo "profile:$NIX_CONFIG_FILE" >> "$MANIFEST_FILE"
-    PROFILE_UPDATED="Nix environment"
-}
-
 
 update_standard_shell() {
     echo -e "\n(4/5) Updating user's shell profile..."
@@ -346,7 +262,7 @@ update_standard_shell() {
 
     touch "$profile_to_update"
 
-    local init_block="# >>> workspace tool initialize >>>\\n# This block was automatically added by the workspace installer.\\n# To remove, run 'install.sh --uninstall' or simply delete this block.\\nif [ -f \"$CONFIG_SCRIPT\" ]; then\\n    source \"$CONFIG_SCRIPT\"\\nfi\\n# <<< workspace tool initialize <<<"
+    local init_block="# >>> workspace tool initialize >>>\n# This block was automatically added by the workspace installer.\n# To remove, run 'install.sh --uninstall' or simply delete this block.\nif [ -f \"$CONFIG_SCRIPT\" ]; then\n    source \"$CONFIG_SCRIPT\"\nfi\n# <<< workspace tool initialize <<<"
 
     if ! grep -q "# >>> workspace tool initialize >>>" "$profile_to_update"; then
         echo "  - Adding workspace tool initialization to $profile_to_update..."
@@ -361,7 +277,7 @@ update_standard_shell() {
 setup_executable() {
     echo -e "\n(5/5) Setting up executable..."
     mkdir -p "$BIN_DIR" && echo "dir:$BIN_DIR" >> "$MANIFEST_FILE"
-    chmod +x "$SRC_SCRIPT" "$WARM_SCRIPT_PATH" "$VISUAL_EFFECTS_SCRIPT" # Made visual effects script executable
+    chmod +x "$SRC_SCRIPT" "$WARM_SCRIPT_PATH" "$VISUAL_EFFECTS_SCRIPT"
     ln -sf "$SRC_SCRIPT" "$DEST_LINK"
     echo "file:$DEST_LINK" >> "$MANIFEST_FILE"
     echo "  - Linked $SRC_SCRIPT to $DEST_LINK"
@@ -401,10 +317,17 @@ install() {
 
     echo "Starting installation of the 'workspace' tool..."
 
+    detect_package_manager
+    if [ "$SYS_PM" = "nix" ]; then
+        handle_nix_config
+    fi
+
     check_dependencies
     install_oh_my_shell
     setup_shell_config
-    update_user_profile
+    if [ "$SYS_PM" != "nix" ]; then
+        update_standard_shell
+    fi
     setup_executable
     first_run_experience
 
@@ -417,7 +340,11 @@ install() {
     fi
 
     echo -e "\n--- Installation Complete ---"
-    echo "To finish, please restart your shell or run: source $PROFILE_UPDATED"
+    if [ "$SYS_PM" = "nix" ]; then
+        echo "To finish, please close and reopen your terminal to apply the changes to your Nix environment."
+    else
+        echo "To finish, please restart your shell or run: source $PROFILE_UPDATED"
+    fi
 }
 
 uninstall() {
@@ -433,8 +360,8 @@ uninstall() {
         echo "Warning: Installation manifest not found. Proceeding with a standard uninstall."
 
         if is_nix_environment; then
-            uninstall_nix_shell_hook
-            uninstall_nix_dependencies
+            # This uninstall logic would need to be surgical as well, but that's a separate effort.
+            echo "Warning: Automatic uninstallation from dev.nix is not yet implemented."
         fi
 
         rm -rf "$CONFIG_DIR" "$DEST_LINK"
@@ -454,20 +381,19 @@ uninstall() {
             case "$type" in
                 profile)
                     if [ "$path" = "$NIX_CONFIG_FILE" ]; then
-                        uninstall_nix_shell_hook
-                        uninstall_nix_dependencies
+                        echo "   - Note: Manual removal of entries from $path may be required."
                     else
                         echo "   - Removing shell profile entry from $path..."
                         if [ -f "$path" ]; then
-                            sed -i.bak '/^# >>> workspace tool initialize >>>/,/# <<< workspace tool initialize <<</d' "$path" >/dev/null 2>&1 || true
+                            sed -i.bak '/^# >>> workspace tool initialize >>>/,/# <<< workspace tool initialize <<</d' "$path" >/dev/null 2_1 || true
                             rm -f "${path}.bak"
                         fi
                     fi
-                    ;;
+                    ;; 
                 file)
                     echo "   - Removing file: $path..."
                     rm -f "$path"
-                    ;;
+                    ;; 
                 dir)
                     if [ -d "$path" ] && [ -z "$(ls -A "$path")" ]; then
                         echo "   - Removing empty directory: $path..."
@@ -475,7 +401,7 @@ uninstall() {
                     elif [ -d "$path" ]; then
                          echo "   - Directory not empty, skipping: $path..."
                     fi
-                    ;;
+                    ;; 
             esac
         done
         rm -f "$MANIFEST_FILE"
@@ -487,35 +413,6 @@ uninstall() {
     echo -e "\n--- Uninstallation Complete ---"
     echo "Note: Dependencies installed by the system package manager were not removed."
     echo "You can now safely delete the installation directory: $INSTALL_DIR"
-}
-
-uninstall_nix_dependencies() {
-    echo "   - Removing dependencies from $NIX_CONFIG_FILE..."
-    if [ -f "$NIX_CONFIG_FILE" ]; then
-        local temp_nix_file=$(mktemp)
-        grep -v 'pkgs.sqlite' "$NIX_CONFIG_FILE" | grep -v 'pkgs.ncurses' | grep -v 'pkgs.fzf' | grep -v 'pkgs.autojump' > "$temp_nix_file"
-        mv "$temp_nix_file" "$NIX_CONFIG_FILE"
-    fi
-}
-
-uninstall_nix_shell_hook() {
-    echo "   - Removing shellHook entry from $NIX_CONFIG_FILE..."
-    if [ ! -f "$NIX_CONFIG_FILE" ]; then return; fi
-
-    local temp_nix_file=$(mktemp)
-
-    # Remove only the line added by this script.
-    grep -v '# workspace-hook' "$NIX_CONFIG_FILE" > "$temp_nix_file"
-
-    # If shellHook becomes empty (only contains '' or whitespace), remove it completely.
-    if ! grep -q 'source' "$temp_nix_file"; then
-        grep -v "shellHook" "$temp_nix_file" > "$NIX_CONFIG_FILE"
-    else
-        mv "$temp_nix_file" "$NIX_CONFIG_FILE"
-    fi
-
-    rm -f "$temp_nix_file"
-    echo "  - Updated shellHook in $NIX_CONFIG_FILE."
 }
 
 
@@ -531,9 +428,9 @@ main() {
 
     for arg in "$@"; do
         case $arg in
-            --uninstall) uninstall; exit 0 ;;
-            -y|--yes) NON_INTERACTIVE=true; shift ;;
-            --help) show_help; exit 0 ;;
+            --uninstall) uninstall; exit 0 ;; 
+            -y|--yes) NON_INTERACTIVE=true; shift ;; 
+            --help) show_help; exit 0 ;; 
         esac
     done
 
