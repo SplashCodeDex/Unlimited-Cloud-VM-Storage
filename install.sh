@@ -281,6 +281,7 @@ update_standard_shell() {
         echo "Please manually add the following lines to your shell's profile file (e.g., ~/.profile, ~/.config/fish/config.fish):"
         echo "    export PATH=\"$INSTALL_DIR/bin:\$PATH\""
         echo "    if [ -f \"$CONFIG_SCRIPT\" ]; then source \"$CONFIG_SCRIPT\"; fi"
+        export PATH="$INSTALL_DIR/bin:$PATH"
         return
     fi
 
@@ -342,12 +343,15 @@ install() {
     setup_shell_config
     if [ "$SYS_PM" != "nix" ]; then
         update_standard_shell
+        if [ -n "$PROFILE_UPDATED" ]; then
+            source "$PROFILE_UPDATED"
+        fi
     fi
+    export PATH="$BIN_DIR:$PATH"
     setup_executable
     first_run_experience
 
     echo -e "\n--- Verifying Installation ---"
-    source "$CONFIG_SCRIPT"
     if command -v workspace &>/dev/null && workspace doctor --silent; then
         echo "✅ Verification successful!"
     else
@@ -355,11 +359,7 @@ install() {
     fi
 
     echo -e "\n--- Installation Complete ---"
-    if [ "$SYS_PM" = "nix" ]; then
-        echo "To finish, please close and reopen your terminal to apply the changes to your Nix environment."
-    else
-        echo "To finish, please restart your shell or run: source $PROFILE_UPDATED"
-    fi
+    echo "To finish, please restart your shell or run: source $PROFILE_UPDATED"
 }
 
 standard_uninstall() {
