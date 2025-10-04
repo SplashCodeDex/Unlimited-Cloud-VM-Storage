@@ -21,3 +21,6 @@ export WARMING_PROJECT_COUNT=1
 
 # Threshold for detecting large, untracked directories (in KB)
 export LARGE_DIR_THRESHOLD_KB=51200
+
+# Disable automatic symlinking of large directories
+export DISABLE_AUTO_SYMLINK=false

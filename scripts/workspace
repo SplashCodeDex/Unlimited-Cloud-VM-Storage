@@ -2,7 +2,7 @@
 #!/bin/bash
 # Enhanced script to create, list, and switch ephemeral workspaces.
 
-set -e # Exit immediately if a command exits with a non-zero status.
+
 
 # --- Configuration ---
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" &>/dev/null && pwd)"
@@ -68,6 +68,11 @@ _link_configs() {
 }
 
 _symlink_artifacts() {
+    if [ "$DISABLE_AUTO_SYMLINK" = true ]; then
+        print_info "Automatic symlinking is disabled."
+        return
+    fi
+
     local project_path="$1"
     local project_name="$2"
     local ephemeral_project_cache_dir="$EPHEMERAL_CACHE_DIR/$project_name"
@@ -108,7 +113,8 @@ _symlink_artifacts() {
     fi
 
     if [ ${#candidate_dirs[@]} -gt 0 ]; then
-        print_info "  - Found large untracked directories: ${candidate_dirs[*]}"
+        print_warning "Found large untracked directories: ${candidate_dirs[*]}"
+        print_warning "Moving them to ephemeral storage can save space, but it might break build scripts."
         echo -n "    Move them to ephemeral storage? [y/N] "
         read -r
         echo >&2
@@ -152,6 +158,21 @@ _symlink_artifacts() {
 
 init_database() {
     if ! command -v sqlite3 &> /dev/null; then print_error "sqlite3 is not installed."; exit 1; fi
+    if [ -f "$DB_FILE" ]; then
+        if ! sqlite3 "$DB_FILE" ".tables" &> /dev/null; then
+            print_warning "The workspace database appears to be corrupted."
+            echo -n "Do you want to recreate it? (This will delete your workspace history) [y/N] "
+            read -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                rm -f "$DB_FILE"
+                print_info "Database recreated."
+            else
+                print_error "Database is corrupted. Please fix it manually or delete it."
+                exit 1
+            fi
+        fi
+    fi
     if [ ! -f "$DB_FILE" ]; then
         sqlite3 "$DB_FILE" "CREATE TABLE workspaces (path TEXT PRIMARY KEY, git_url TEXT, last_access INTEGER, frequency INTEGER DEFAULT 1);"
     fi
@@ -196,8 +217,10 @@ _get_git_status() {
         color="$COLOR_YELLOW"
     else
         # Check if behind remote
-        git -C "$path" fetch --quiet
-        if [ $(git -C "$path" rev-list HEAD...@{u} --count) -gt 0 ]; then
+        if ! git -C "$path" fetch --quiet 2>/dev/null; then
+            status="[E]"
+            color="$COLOR_RED"
+        elif [ $(git -C "$path" rev-list HEAD...@{u} --count) -gt 0 ]; then
             status="[↓]"
             color="$COLOR_RED"
         else
@@ -239,7 +262,7 @@ _handle_interactive_selection() {
 
     local db_output
     db_output=$(sqlite3 -separator '|' "$DB_FILE" \
-        "SELECT path, last_access FROM workspaces ORDER BY (frequency / (strftime('%s','now') - last_access + 1)) DESC, last_access DESC LIMIT 50;")
+        "SELECT path, last_access FROM workspaces ORDER BY (frequency * (1.0 / (strftime('%s','now') - last_access + 1))) DESC, last_access DESC LIMIT 50;")
 
     if [ -z "$db_output" ]; then
         print_info "No workspaces in history."
@@ -299,7 +322,7 @@ _handle_json_output() {
 
     local db_output
     db_output=$(sqlite3 -separator '|' "$DB_FILE" \
-        "SELECT path, git_url, last_access FROM workspaces ORDER BY (frequency / (strftime('%s','now') - last_access + 1)) DESC, last_access DESC LIMIT 50;")
+        "SELECT path, git_url, last_access FROM workspaces ORDER BY (frequency * (1.0 / (strftime('%s','now') - last_access + 1))) DESC, last_access DESC LIMIT 50;")
 
     if [ -z "$db_output" ]; then echo "[]"; exit 0; fi
 
@@ -339,7 +362,7 @@ _handle_numeric_selection() {
     if [ ! -f "$DB_FILE" ]; then exit 1; fi
     
     local path_to_enter
-    path_to_enter=$(sqlite3 "$DB_FILE" "SELECT path FROM workspaces ORDER BY (frequency / (strftime('%s','now') - last_access + 1)) DESC, last_access DESC LIMIT 1 OFFSET (($choice - 1));")
+    path_to_enter=$(sqlite3 "$DB_FILE" "SELECT path FROM workspaces ORDER BY (frequency * (1.0 / (strftime('%s','now') - last_access + 1))) DESC, last_access DESC LIMIT 1 OFFSET (($choice - 1));")
     
     if [ -z "$path_to_enter" ]; then
         print_error "Invalid selection."
@@ -365,17 +388,20 @@ _handle_project_creation_or_opening() {
         PROJECT_NAME="$INPUT"
     fi
 
-    local SANITIZED_NAME=$(echo "$PROJECT_NAME" | sed 's/[^a-zA-Z0-9_-]//g')
+    local SANITIZED_NAME=$(echo "$PROJECT_NAME" | sed -e 's|https://github.com/||' -e 's|/| |g' | awk '{print $NF}' | sed 's/\.git//')
     local PROJECT_PATH="$WORKSPACE_BASE_DIR/$SANITIZED_NAME"
 
     if [ ! -d "$PROJECT_PATH" ] && command -v autojump &>/dev/null; then
-        print_info "Found matching directory with autojump: $autojump_path"
-        echo -n "Do you want to treat this as a workspace? [Y/n] "
-        read -r
-        echo
-        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-            PROJECT_PATH="$autojump_path"
-            SANITIZED_NAME=$(basename "$autojump_path")
+        local autojump_path=$(autojump -s "$SANITIZED_NAME")
+        if [ -n "$autojump_path" ] && [ -d "$autojump_path" ]; then
+            print_info "Found matching directory with autojump: $autojump_path"
+            echo -n "Do you want to treat this as a workspace? [Y/n] "
+            read -r
+            echo
+            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                PROJECT_PATH="$autojump_path"
+                SANITIZED_NAME=$(basename "$autojump_path")
+            fi
         fi
     fi
 
@@ -398,13 +424,12 @@ _handle_project_creation_or_opening() {
             local git_pid=$!
             spinner $git_pid
             wait $git_pid
-            if [ $? -eq 0 ]; then
-                print_success "Cloning complete."
-            else
+            if [ $? -ne 0 ]; then
                 print_error "Cloning failed. Please check the URL and your network connection."
                 rm -rf "$PROJECT_PATH" # Clean up failed clone
                 exit 1 # Exit with an error
             fi
+            print_success "Cloning complete."
         else
             print_info "Creating new empty workspace '$PROJECT_PATH'..."
             mkdir -p "$PROJECT_PATH"
@@ -490,6 +515,11 @@ doctor() {
 main() {
     case "$1" in
         --help|-h) show_help; exit 0 ;;
+        sync) 
+            print_info "Syncing workspace..."
+            _symlink_artifacts "$(pwd)" "$(basename "$(pwd)")"
+            print_success "Workspace sync complete." 
+            exit 0 ;;
         warm) 
             print_info "Warming workspaces..."
             bash "$WARM_SCRIPT_PATH" & 
@@ -497,6 +527,7 @@ main() {
             print_success "Workspace warming complete." 
             exit 0 ;;
         doctor) doctor; exit 0 ;;
+        --get-base-dir) echo "$WORKSPACE_BASE_DIR"; exit 0 ;;
         --json) _handle_json_output; exit 0 ;;
         -*)
             print_error "Unknown option '$1'"

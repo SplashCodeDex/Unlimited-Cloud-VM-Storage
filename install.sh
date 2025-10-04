@@ -58,23 +58,7 @@ detect_package_manager() {
     fi
 }
 
-get_package_name() {
-    local generic_name="$1"
-    local pm="$2"
 
-    case "$pm" in
-        nix)
-            case "$generic_name" in
-                sqlite3) echo "sqlite" ;;
-                ncurses) echo "ncurses" ;;
-                *) echo "$generic_name" ;;
-            esac
-            ;; 
-        *)
-            echo "$generic_name"
-            ;; 
-    esac
-}
 
 # --- Nix Configuration ---
 
@@ -87,16 +71,45 @@ build_nix_config() {
     PROFILE_UPDATED="Nix environment"
 }
 
-surgically_update_nix_config() {
-    echo "  - '.idx/dev.nix' already exists. Verifying its content..."
-    echo "  - '.idx/dev.nix' is already configured correctly."
+replace_nix_config() {
+    echo "  - '.idx/dev.nix' already exists. Backing it up and replacing it with the template..."
+    local backup_file="$NIX_CONFIG_FILE.bak"
+    if [ ! -f "$backup_file" ]; then
+        cp "$NIX_CONFIG_FILE" "$backup_file"
+        echo "profile:$backup_file" >> "$MANIFEST_FILE"
+    fi
+    cp "templates/dev.nix.template" "$NIX_CONFIG_FILE"
+    echo "  - Successfully replaced '$NIX_CONFIG_FILE' with the template."
+    PROFILE_UPDATED="Nix environment"
 }
 
 handle_nix_config() {
     if [ ! -f "$NIX_CONFIG_FILE" ]; then
         build_nix_config
     else
-        surgically_update_nix_config
+        replace_nix_config
+    fi
+}
+
+prompt_for_sudo() {
+    if [ -z "$SUDO_CMD" ] && [ "$NON_INTERACTIVE" = false ]; then
+        echo "This script needs to install some dependencies using your system's package manager."
+        echo "This requires root privileges. Please enter your password if prompted."
+        if command -v sudo &>/dev/null; then
+            if sudo -v; then
+                SUDO_CMD="sudo"
+            else
+                abort "sudo authentication failed."
+            fi
+        else
+            abort "sudo is not installed. Please install it and run this script again."
+        fi
+    elif [ -z "$SUDO_CMD" ] && [ "$NON_INTERACTIVE" = true ]; then
+        if command -v sudo &>/dev/null; then
+            SUDO_CMD="sudo"
+        else
+            abort "sudo is not installed. Please install it and run this script again."
+        fi
     fi
 }
 
@@ -137,6 +150,7 @@ check_dependencies() {
     fi
 
     if [ "$should_install" = true ]; then
+        prompt_for_sudo
         install_missing_dependencies "${missing_deps[@]}"
     fi
 
@@ -183,24 +197,7 @@ install_missing_dependencies() {
     esac
 }
 
-install_oh_my_shell() {
-    local shell_name=$(basename "$SHELL")
-    echo -e "\n(2/5) Configuring shell environment..."
-    if [ "$shell_name" = "zsh" ] && [ ! -d "$HOME/.oh-my-zsh" ]; then
-        echo "  - Oh My Zsh is recommended for the best experience."
-        if [ "$NON_INTERACTIVE" = false ]; then
-            echo -n "  - Do you want to install Oh My Zsh now? [Y/n] "
-            read -r REPLY
-            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-                sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
-            fi
-        else
-            echo "  - Skipping Oh My Zsh installation in non-interactive mode."
-        fi
-    else
-        echo "  - Shell environment checks passed."
-    fi
-}
+
 
 setup_shell_config() {
     echo -e "\n(3/5) Creating shell function and configuration..."
@@ -244,22 +241,8 @@ EOF
     echo "  - Created $CONFIG_SCRIPT"
 }
 
-update_standard_shell() {
-    echo -e "\n(4/5) Updating user's shell profile..."
-    local shell_name=$(basename "$SHELL")
-    local profile_to_update=""
-
-    if [ "$shell_name" = "bash" ]; then profile_to_update="$HOME/.bashrc"; fi
-    if [ "$shell_name" = "zsh" ]; then profile_to_update="$HOME/.zshrc"; fi
-
-    if [ -z "$profile_to_update" ]; then
-        echo "Warning: Unsupported shell '$shell_name'."
-        echo "Please manually add the following lines to your shell's profile file (e.g., ~/.profile, ~/.config/fish/config.fish):"
-        echo "    export PATH=\"$INSTALL_DIR/bin:\$PATH\""
-        echo "    if [ -f \"$CONFIG_SCRIPT\" ]; then source \"$CONFIG_SCRIPT\"; fi"
-        return
-    fi
-
+add_to_profile() {
+    local profile_to_update="$1"
     touch "$profile_to_update"
 
     local init_block
@@ -285,10 +268,32 @@ EOF
 	PROFILE_UPDATED="$profile_to_update"
 }
 
+update_standard_shell() {
+    echo -e "\n(4/5) Updating user's shell profile..."
+    local shell_name=$(basename "$SHELL")
+    local profile_to_update=""
+
+    if [ "$shell_name" = "bash" ]; then profile_to_update="$HOME/.bashrc"; fi
+    if [ "$shell_name" = "zsh" ]; then profile_to_update="$HOME/.zshrc"; fi
+
+    if [ -z "$profile_to_update" ]; then
+        echo "Warning: Unsupported shell '$shell_name'."
+        echo "Please manually add the following lines to your shell's profile file (e.g., ~/.profile, ~/.config/fish/config.fish):"
+        echo "    export PATH=\"$INSTALL_DIR/bin:\$PATH\""
+        echo "    if [ -f \"$CONFIG_SCRIPT\" ]; then source \"$CONFIG_SCRIPT\"; fi"
+        return
+    fi
+
+    add_to_profile "$profile_to_update"
+}
+
 setup_executable() {
     echo -e "\n(5/5) Setting up executable..."
     mkdir -p "$BIN_DIR" && echo "dir:$BIN_DIR" >> "$MANIFEST_FILE"
     chmod +x "$SRC_SCRIPT" "$WARM_SCRIPT_PATH" "$VISUAL_EFFECTS_SCRIPT"
+    if [ -d "$INSTALL_DIR/scripts/detectors" ]; then
+        chmod +x "$INSTALL_DIR/scripts/detectors/"*.sh
+    fi
     ln -sf "$SRC_SCRIPT" "$DEST_LINK"
     echo "file:$DEST_LINK" >> "$MANIFEST_FILE"
     echo "  - Linked $SRC_SCRIPT to $DEST_LINK"
@@ -334,7 +339,6 @@ install() {
     fi
 
     check_dependencies
-    install_oh_my_shell
     setup_shell_config
     if [ "$SYS_PM" != "nix" ]; then
         update_standard_shell
@@ -358,6 +362,23 @@ install() {
     fi
 }
 
+standard_uninstall() {
+    echo "Warning: Installation manifest not found. Proceeding with a standard uninstall."
+
+    if is_nix_environment; then
+        echo "Warning: Could not find backup for .idx/dev.nix. Please restore it manually."
+    fi
+
+    rm -rf "$CONFIG_DIR" "$DEST_LINK"
+    local profile_files=("$HOME/.bashrc" "$HOME/.zshrc")
+    for profile_file in "${profile_files[@]}"; do
+        if [ -f "$profile_file" ]; then
+            sed -i.bak '/^# >>> workspace tool initialize >>>/,/# <<< workspace tool initialize <<</d' "$profile_file" >/dev/null 2>&1 || true
+            rm -f "${profile_file}.bak"
+        fi
+    done
+}
+
 uninstall() {
     echo "Starting uninstallation of the 'workspace' tool..."
 
@@ -368,21 +389,7 @@ uninstall() {
     fi
 
     if [ ! -f "$MANIFEST_FILE" ]; then
-        echo "Warning: Installation manifest not found. Proceeding with a standard uninstall."
-
-        if is_nix_environment; then
-            # This uninstall logic would need to be surgical as well, but that's a separate effort.
-            echo "Warning: Automatic uninstallation from dev.nix is not yet implemented."
-        fi
-
-        rm -rf "$CONFIG_DIR" "$DEST_LINK"
-        local profile_files=("$HOME/.bashrc" "$HOME/.zshrc")
-        for profile_file in "${profile_files[@]}"; do
-            if [ -f "$profile_file" ]; then
-                sed -i.bak '/^# >>> workspace tool initialize >>>/,/# <<< workspace tool initialize <<</d' "$profile_file" >/dev/null 2>&1 || true
-                rm -f "${profile_file}.bak"
-            fi
-        done
+        standard_uninstall
     else
         echo " - Reading installation manifest..."
         tac "$MANIFEST_FILE" | while IFS= read -r line; do
@@ -391,18 +398,13 @@ uninstall() {
 
             case "$type" in
                 profile)
-                    if [ "$path" = "$NIX_CONFIG_FILE" ]; then
-                        local backup_file="$path.bak"
-                        if [ -f "$backup_file" ]; then
-                            echo "   - Restoring backup of .idx/dev.nix..."
-                            mv "$backup_file" "$path"
-                        else
-                            echo "   - Removing workspace hook from .idx/dev.nix..."
-                            if [ -f "$path" ]; then
-                                sed -i.bak '\,source "$HOME/.config/workspace/workspace.sh" # workspace-hook,d' "$path"
-                                rm -f "${path}.bak"
-                            fi
-                        fi
+                    if [ "$path" = "$NIX_CONFIG_FILE.bak" ]; then
+                        echo "   - Restoring backup of .idx/dev.nix..."
+                        mv "$path" "$NIX_CONFIG_FILE"
+                    elif [ "$path" = "$NIX_CONFIG_FILE" ]; then
+                        # This is the case where the user's original dev.nix was replaced
+                        # but the backup was not recorded in the manifest. We can't do anything here.
+                        echo "Warning: Could not find backup for .idx/dev.nix. Please restore it manually."
                     else
                         echo "   - Removing shell profile entry from $path..."
                         if [ -f "$path" ]; then
@@ -439,14 +441,6 @@ uninstall() {
 
 # --- Main Script ---
 main() {
-    if ! is_nix_environment && [ "$(id -u)" -ne 0 ] && [ -z "$SUDO_CMD" ]; then
-        if command -v sudo &>/dev/null; then
-            SUDO_CMD="sudo"
-        else
-            abort "This script requires root privileges to install dependencies. Please run as root or ensure 'sudo' is installed."
-        fi
-    fi
-
     for arg in "$@"; do
         case $arg in
             --uninstall) uninstall; exit 0 ;; 

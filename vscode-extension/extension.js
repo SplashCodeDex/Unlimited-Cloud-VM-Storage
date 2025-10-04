@@ -70,6 +70,18 @@ class Workspace extends vscode.TreeItem {
     }
 }
 
+function getWorkspaceBaseDir() {
+    return new Promise((resolve, reject) => {
+        exec('workspace --get-base-dir', (error, stdout, stderr) => {
+            if (error) {
+                console.error(`exec error: ${error}`);
+                return reject(stderr);
+            }
+            resolve(stdout.trim());
+        });
+    });
+}
+
 function activate(context) {
     const workspaceProvider = new WorkspaceProvider();
     vscode.window.createTreeView('workspacesView', { treeDataProvider: workspaceProvider });
@@ -104,10 +116,23 @@ function activate(context) {
         if (workspace) {
             const confirm = await vscode.window.showWarningMessage(`Are you sure you want to delete the workspace "${workspace.label}"?`, { modal: true }, 'Delete');
             if (confirm === 'Delete') {
-                const terminal = vscode.window.createTerminal(`Workspace: ${workspace.label}`);
-                terminal.sendText(`rm -rf ${workspace.path}`);
-                terminal.show();
-                workspaceProvider.refresh();
+                try {
+                    const baseDir = await getWorkspaceBaseDir();
+                    if (!workspace.path.startsWith(baseDir)) {
+                        vscode.window.showErrorMessage('Cannot delete a workspace outside of the workspace base directory.');
+                        return;
+                    }
+
+                    // Sanitize the path to prevent command injection
+                    const sanitizedPath = workspace.path.replace(/[^a-zA-Z0-9_\-\/]/g, '');
+
+                    const terminal = vscode.window.createTerminal(`Workspace: ${workspace.label}`);
+                    terminal.sendText(`rm -rf ${sanitizedPath}`);
+                    terminal.show();
+                    workspaceProvider.refresh();
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Error deleting workspace: ${error}`);
+                }
             }
         }
     });

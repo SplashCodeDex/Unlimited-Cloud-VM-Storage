@@ -100,8 +100,19 @@ Run `workspace` with no arguments to see your "frecency"-ranked list of projects
 workspace
 ```
 
+#### Syncing a Workspace
+
+The `workspace` tool can automatically detect and move large, untracked directories (like `node_modules`) to ephemeral storage to save space. This scan is performed automatically when you create or open a workspace.
+
+However, if you create a large directory after the initial scan, you can manually trigger the scan by running the `workspace sync` command from within your workspace directory.
+
+```bash
+workspace sync
+```
+
 #### Commands
 
+*   `workspace sync`: Scans the current workspace for large, untracked directories and moves them to ephemeral storage.
 *   `workspace warm`: Fetches the latest changes for all your Git-based workspaces.
 *   `workspace doctor`: Runs a health check on your environment to diagnose and fix common issues.
 *   `workspace --json`: Outputs a machine-readable list of all workspaces, used by the VS Code extension.
