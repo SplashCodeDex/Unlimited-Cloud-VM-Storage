@@ -380,7 +380,6 @@ uninstall() {
         read -r REPLY
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then echo "Uninstallation cancelled."; exit 0; fi
     fi
-
     if [ ! -f "$MANIFEST_FILE" ]; then
         standard_uninstall
     else
@@ -434,15 +433,20 @@ uninstall() {
 
 # --- Main Script ---
 main() {
+    local UNINSTALL=false
     for arg in "$@"; do
         case $arg in
-            --uninstall) uninstall; exit 0 ;; 
-            -y|--yes) NON_INTERACTIVE=true; shift ;; 
-            --help) show_help; exit 0 ;; 
+            --uninstall) UNINSTALL=true; shift ;;
+            -y|--yes) NON_INTERACTIVE=true; shift ;;
+            --help) show_help; exit 0 ;;
         esac
     done
 
-    install
+    if [ "$UNINSTALL" = true ]; then
+        uninstall
+    else
+        install
+    fi
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
