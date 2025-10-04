@@ -341,25 +341,18 @@ install() {
 
     check_dependencies
     setup_shell_config
-    if [ "$SYS_PM" != "nix" ]; then
-        update_standard_shell
-        if [ -n "$PROFILE_UPDATED" ]; then
-            source "$PROFILE_UPDATED"
-        fi
+    update_standard_shell
+    if [ -n "$PROFILE_UPDATED" ]; then
+        source "$PROFILE_UPDATED"
     fi
     export PATH="$BIN_DIR:$PATH"
     setup_executable
     first_run_experience
 
-    echo -e "\n--- Verifying Installation ---"
-    if command -v workspace &>/dev/null && workspace doctor --silent; then
-        echo "✅ Verification successful!"
-    else
-        echo "⚠️ Verification failed. Please run 'workspace doctor' for more details."
-    fi
+
 
     echo -e "\n--- Installation Complete ---"
-    echo "To finish, please restart your shell or run: source $PROFILE_UPDATED"
+    echo "To finish, please restart your shell and then run 'workspace doctor' to verify the installation."
 }
 
 standard_uninstall() {
