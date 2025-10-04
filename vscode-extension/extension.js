@@ -127,7 +127,7 @@ function activate(context) {
                     const sanitizedPath = workspace.path.replace(/[^a-zA-Z0-9_\-\/]/g, '');
 
                     const terminal = vscode.window.createTerminal(`Workspace: ${workspace.label}`);
-                    terminal.sendText(`rm -rf ${sanitizedPath}`);
+                    terminal.sendText(`workspace --delete ${sanitizedPath}`);
                     terminal.show();
                     workspaceProvider.refresh();
                 } catch (error) {

@@ -527,6 +527,19 @@ main() {
             print_success "Workspace warming complete." 
             exit 0 ;;
         doctor) doctor; exit 0 ;;
+        --delete) 
+            local path_to_delete="$2"
+            if [ -z "$path_to_delete" ]; then
+                print_error "Please provide a path to delete."
+                exit 1
+            fi
+            if [ ! -d "$path_to_delete" ]; then
+                print_error "Directory not found: $path_to_delete"
+            fi
+            rm -rf "$path_to_delete"
+            sqlite3 "$DB_FILE" "DELETE FROM workspaces WHERE path='$path_to_delete';"
+            print_success "Workspace deleted: $path_to_delete"
+            exit 0 ;;
         --get-base-dir) echo "$WORKSPACE_BASE_DIR"; exit 0 ;;
         --json) _handle_json_output; exit 0 ;;
         -*)
