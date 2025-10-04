@@ -38,6 +38,7 @@
 | **🩺 Health Checks** | The `workspace doctor` command runs a full suite of diagnostics to ensure your environment is healthy and configured correctly. |
 | **🚀 Non-Invasive Installation**| The smart installer respects your existing shell configuration and adds itself non-destructively. Uninstallation is just as clean. |
 | **🧪 Automated Testing** | A full suite of tests ensures the stability and reliability of the project as it grows. |
+| **🚀 Automatic Symlinking** | Automatically detects and moves large, untracked directories (like `node_modules`) to ephemeral storage to save space. |
 
 ---
 
@@ -83,39 +84,85 @@ source ~/.bashrc  # or ~/.zshrc, ~/.bash_profile
 
 ## Usage
 
-The `workspace` command is designed to be intuitive and fast.
+The `workspace` command is the main entry point for interacting with your workspaces.
 
-#### Create or Switch to a Workspace
+### Interactive Mode
 
-```bash
-# Use a full git URL, a project name, or a local path
-workspace https://github.com/your-username/your-project.git
-```
-
-#### View Your Workspace History
-
-Run `workspace` with no arguments to see your "frecency"-ranked list of projects in an interactive menu.
+Running `workspace` without any arguments will launch an interactive menu (using `fzf` if installed) that displays your recent workspaces, ranked by "frecency" (frequency and recency).
 
 ```bash
 workspace
 ```
 
-#### Syncing a Workspace
+### Direct Mode
 
-The `workspace` tool can automatically detect and move large, untracked directories (like `node_modules`) to ephemeral storage to save space. This scan is performed automatically when you create or open a workspace.
+You can also interact with workspaces directly:
 
-However, if you create a large directory after the initial scan, you can manually trigger the scan by running the `workspace sync` command from within your workspace directory.
+*   `workspace <n>`: Switch to the nth most recent workspace.
+*   `workspace <name>`: Create or switch to a local workspace named `<name>`.
+*   `workspace <git_url>`: Clone a git repository and create a new workspace.
 
-```bash
-workspace sync
-```
+### Commands
 
-#### Commands
-
+*   `workspace warm`: Manually refresh all Git-based workspaces by fetching the latest changes.
+*   `workspace doctor`: Check for common problems and offer solutions.
 *   `workspace sync`: Scans the current workspace for large, untracked directories and moves them to ephemeral storage.
-*   `workspace warm`: Fetches the latest changes for all your Git-based workspaces.
-*   `workspace doctor`: Runs a health check on your environment to diagnose and fix common issues.
-*   `workspace --json`: Outputs a machine-readable list of all workspaces, used by the VS Code extension.
+*   `workspace --json`: Output a JSON list of workspaces for machine consumption.
+*   `workspace --help`: Show this help message.
+
+---
+
+## Configuration
+
+The main configuration file is located at `scripts/config.sh`. You can modify this file to change the default behavior of the workspace tool.
+
+**Available Options:**
+
+*   `WORKSPACE_BASE_DIR`: The base directory for your workspaces.
+*   `EPHEMERAL_CACHE_DIR`: The directory where large directories are symlinked to.
+*   `DB_FILE`: The database file for workspace history.
+*   `WORKSPACE_CONFIGS_FILE`: The main configuration file for dotfile symlinks.
+*   `WARMING_LOG_FILE`: The log file for the warming script.
+*   `WARMING_PROJECT_COUNT`: The number of projects to pre-warm in the background.
+*   `LARGE_DIR_THRESHOLD_KB`: The threshold for detecting large, untracked directories (in KB).
+*   `DISABLE_AUTO_SYMLINK`: Disable automatic symlinking of large directories.
+
+---
+
+## Automatic Symlinking
+
+The workspace tool automatically detects and symlinks large directories to ephemeral storage. This is done by a set of detector scripts located in `scripts/detectors`.
+
+**Detected Directories:**
+
+*   `build`: If a `build.gradle`, `pom.xml`, or `CMakeLists.txt` file is present.
+*   `dist`: If a `package.json` file is present.
+*   `.idea`, `.vscode`, `.gradle`: If these directories exist.
+*   `.next`: If a `next.config.js` file is present.
+*   `node_modules`: If a `package.json` file is present.
+*   `.nuxt`: If a `nuxt.config.js` file is present.
+*   `target`: If a `Cargo.toml` or `pom.xml` file is present.
+*   `vendor`: If a `Gemfile`, `go.mod`, or `composer.json` file is present.
+
+You can also manually specify directories to be symlinked by creating a `.workspace_symlinks` file in the root of your project and listing the directory names within it.
+
+---
+
+## Bash Customizations
+
+The installation script also adds some useful aliases and functions to your shell.
+
+**Aliases:**
+
+*   `ll`: `ls -alF`
+*   `la`: `ls -A`
+*   `l`: `ls -CF`
+*   `alert`: An alias for sending a notification for long-running commands.
+*   `clean_vscode`: Cleans up the vscode-server cache.
+
+**Functions:**
+
+*   `workspace`: The main function for interacting with workspaces.
 
 ---
 

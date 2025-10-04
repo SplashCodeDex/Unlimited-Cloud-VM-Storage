@@ -137,7 +137,7 @@ _symlink_artifacts() {
             print_info "  - Migrating '$dir_name' to ephemeral storage..."
             rsync -av "$project_artifact_path/" "$cache_target_path/" & 
             local rsync_pid=$!
-            spinner $rsync_pid
+            spinner $rsync_pid "Migrating '$dir_name' to ephemeral storage..." 
             wait $rsync_pid
             if [ $? -eq 0 ]; then
                 rm -rf "$project_artifact_path"
@@ -422,7 +422,7 @@ _handle_project_creation_or_opening() {
             print_info "Cloning '$INPUT' into '$PROJECT_PATH'..."
             git clone "$INPUT" "$PROJECT_PATH" & 
             local git_pid=$!
-            spinner $git_pid
+            spinner $git_pid "Cloning '$INPUT' into '$PROJECT_PATH'..." 
             wait $git_pid
             if [ $? -ne 0 ]; then
                 print_error "Cloning failed. Please check the URL and your network connection."
@@ -523,7 +523,7 @@ main() {
         warm) 
             print_info "Warming workspaces..."
             bash "$WARM_SCRIPT_PATH" & 
-            spinner $!
+            spinner $! "Warming workspaces..." 
             print_success "Workspace warming complete." 
             exit 0 ;;
         doctor) doctor; exit 0 ;;
