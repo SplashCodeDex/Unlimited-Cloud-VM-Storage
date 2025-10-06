@@ -24,33 +24,19 @@ spinner() {
 
     local pid=$1
     local message=$2
-    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    local delay=0.05
-    local start_time=$(date +%s)
+    local spinstr='|/-\'
+    local delay=0.1
 
     echo -n "$message " >&2
     while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
-        local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr" >&2
-        local spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b\b\b\b" >&2
+        for i in $(seq 0 3); do
+            printf "[%c]" "${spinstr:$i:1}" >&2
+            sleep $delay
+            printf "\b\b\b" >&2
+        done
     done
-
-    local end_time=$(date +%s)
-    local duration=$((end_time - start_time))
-    local min_duration=1 # Minimum spinner duration in seconds
-
-    if [ "$duration" -lt "$min_duration" ]; then
-        if command -v bc &>/dev/null; then
-            sleep $(echo "$min_duration - $duration" | bc)
-        else
-            sleep 1
-        fi
-    fi
-
-    printf "    \b\b\b\b" >&2
-    echo " " >&2
+    printf "   \b\b\b" >&2
+    echo "" >&2
 }
 
 # --- Progress Bar ---

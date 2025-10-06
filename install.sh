@@ -164,7 +164,7 @@ check_dependencies() {
     done
 
     if [ ${#still_missing_core_deps[@]} -gt 0 ]; then
-        abort "The following core dependencies are still missing: ${still_missing_core_deps[*]}. Please install them manually and run this script again."
+        abort "The following core dependencies are still. Please install them manually and run this script again."
     fi
 }
 
@@ -383,7 +383,7 @@ first_run_experience() {
     echo -e "\n--- First-time setup ---"
     echo "Welcome to the 'workspace' tool! Let's get you configured."
 
-    local default_ws_dir="$HOME/Workspaces"
+    local default_.ws_dir="$HOME/Workspaces"
     local ws_dir=""
 
     if [ "$NON_INTERACTIVE" = false ]; then
@@ -410,24 +410,35 @@ install() {
     touch "$MANIFEST_FILE"
 
     echo "Starting installation of the 'workspace' tool..."
+    source "$INSTALL_DIR/scripts/visual_effects.sh"
+    progress_bar 5 &
 
     detect_package_manager
     if [ "$SYS_PM" = "nix" ]; then
         handle_nix_config
     fi
+    sleep 1
 
     check_dependencies
+    sleep 1
+
     setup_editor_config
+    sleep 1
+
     setup_shell_config
+    sleep 1
+
     update_standard_shell
     if [ -n "$PROFILE_UPDATED" ]; then
         source "$PROFILE_UPDATED"
     fi
     export PATH="$BIN_DIR:$PATH"
     setup_executable
+    sleep 1
+
     first_run_experience
 
-
+    wait
 
     echo -e "\n--- Installation Complete ---"
     echo "To finish, please restart your shell and then run 'workspace doctor' to verify the installation."
@@ -479,7 +490,7 @@ uninstall() {
                         echo "   - Removing shell profile entry from $path..."
                         if [ -f "$path" ]; then
                             sed -i.bak '/^# >>> workspace tool initialize >>>/,/# <<< workspace tool initialize <<</d' "$path" >/dev/null 2>&1 || true
-                            rm -f "${path}.bak"
+                            rm -f "${profile_file}.bak"
                         fi
                     fi
                     ;; 
