@@ -12,6 +12,7 @@
     git
     curl
     jq
+    bc
     gcc       # Includes the GCC compiler needed for ncurses development
     nerd-fonts.fira-code
   ];

@@ -119,7 +119,7 @@ prompt_for_sudo() {
 check_dependencies() {
     echo "(1/5) Checking for dependencies..."
 
-    local core_deps=("sqlite3" "rsync" "git" "curl" "ncurses")
+    local core_deps=("sqlite3" "rsync" "git" "curl" "ncurses" "bc")
     local optional_deps=("fzf" "autojump")
     local missing_deps=()
 
