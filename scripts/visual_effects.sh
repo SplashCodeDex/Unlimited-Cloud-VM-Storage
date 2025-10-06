@@ -42,20 +42,31 @@ spinner() {
 # --- Progress Bar ---
 progress_bar() {
     local duration=${1}
-    already_done() { for ((done=0; done<$elapsed; done++)); do printf "▇"; done }
-    remaining() { for ((remain=$elapsed; remain<$total; remain++)); do printf " "; done }
-    percentage() { printf "| %s%%" $(( (($elapsed)*100)/($total)*100/100 )); }
-    clean_line() { printf "\r"; }
-
     local total=30
     local elapsed=0
+
     while [ $elapsed -lt $total ]; do
-        already_done; remaining; percentage
-        sleep $(($duration/$total))
         elapsed=$(($elapsed+1))
-        clean_line
+        local percentage=$(( ($elapsed*100)/$total ))
+        local done_length=$(( ($percentage*$total)/100 ))
+        local remaining_length=$(( $total-$done_length ))
+        local done_bar=$(printf "%${done_length}s" | tr ' ' '▇')
+        local remaining_bar=$(printf "%${remaining_length}s" | tr ' ' ' ')
+        printf "[\%s\%s] %d%%" "$done_bar" "$remaining_bar" "$percentage"
+        sleep $(echo "$duration/$total" | bc -l)
     done
-    clean_line
+    echo ""
+}
+
+# --- Dots ---
+dots() {
+    local message=$1
+    echo -n "$message" >&2
+    for i in {1..3}; do
+        echo -n "." >&2
+        sleep 0.5
+    done
+    echo "" >&2
 }
 
 # --- Print Functions ---
