@@ -1,11 +1,16 @@
-
 #!/bin/bash
 # Enhanced script to create, list, and switch ephemeral workspaces.
 
 
 
 # --- Configuration ---
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" &>/dev/null && pwd)"
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+  DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
 source "$SCRIPT_DIR/config.sh"
 source "$SCRIPT_DIR/visual_effects.sh" # Source the new visual effects script
 
@@ -58,7 +63,7 @@ _link_configs() {
         return
     fi
 
-    print_info "Linking configurations from $CONFIG_FILE_PATH..."
+    print_info "Linking configurations from $CONFIG_FILE_PATH..." >&2
     while IFS= read -r item || [[ -n "$item" ]]; do
         if [[ "$item" =~ ^\s*# ]] || [ -z "$item" ]; then continue; fi
         if [[ "$item" == ".bashrc" || "$item" == ".profile" || "$item" == ".zshrc" || "$item" == ".zprofile" ]]; then continue; fi
@@ -67,14 +72,14 @@ _link_configs() {
         local link_path="$project_path/$(basename "$item")"
         if [ -e "$source_path" ] && [ ! -L "$link_path" ]; then
             ln -s "$source_path" "$link_path"
-            print_info "  - Linked ~/$item"
+            print_info "  - Linked ~/$item" >&2
         fi
     done < "$CONFIG_FILE_PATH"
 }
 
 _symlink_artifacts() {
     if [ "$DISABLE_AUTO_SYMLINK" = true ]; then
-        print_info "Automatic symlinking is disabled."
+        print_info "Automatic symlinking is disabled." >&2
         return
     fi
 
@@ -82,11 +87,12 @@ _symlink_artifacts() {
     local project_name="$2"
     local ephemeral_project_cache_dir="$EPHEMERAL_CACHE_DIR/$project_name"
     
-    print_info "Checking for heavy artifacts to symlink to ephemeral storage..."
+    print_info "Checking for heavy artifacts to symlink to ephemeral storage..." >&2
 
     local auto_detected_dirs=()
     if [ -d "$DETECTORS_DIR" ]; then
-        for detector in "$DETECTORS_DIR"/*.sh; do
+        for detector in "$DETECTORS_DIR"/*.sh;
+ do
             if [ -f "$detector" ] && [ -x "$detector" ]; then
                 detected=$(bash "$detector" "$project_path")
                 auto_detected_dirs+=($detected)
@@ -97,18 +103,20 @@ _symlink_artifacts() {
     local manual_dirs=()
     local override_file="$project_path/.workspace_symlinks"
     if [ -f "$override_file" ]; then
-        print_info "  - Found override file: .workspace_symlinks"
+        print_info "  - Found override file: .workspace_symlinks" >&2
         while IFS= read -r line; do [[ "$line" =~ ^\s*# ]] || [ -z "$line" ] && continue; manual_dirs+=("$line"); done < "$override_file"
     fi
 
     local candidate_dirs=()
     if [ -d "$project_path/.git" ]; then
-        print_info "  - Scanning for large, untracked directories..."
-        for dir in "$project_path"/*/; do
+        print_info "  - Scanning for large, untracked directories..." >&2
+        for dir in "$project_path"/*/;
+ do
             dir_name=$(basename "$dir")
             if [[ " ${auto_detected_dirs[@]} " =~ " ${dir_name} " ]] || [[ " ${manual_dirs[@]} " =~ " ${dir_name} " ]] || [[ "$dir_name" == .* ]]; then continue; fi
             
-            if ! git -C "$project_path" ls-files --error-unmatch "$dir_name" &>/dev/null; then
+            if ! git -C "$project_path" ls-files --error-unmatch "$dir_name" &>/dev/null;
+ then
                 dir_size_kb=$(du -sk "$dir" | cut -f1)
                 if [ "$dir_size_kb" -gt "$LARGE_DIR_THRESHOLD_KB" ]; then
                     candidate_dirs+=("$dir_name")
@@ -118,9 +126,9 @@ _symlink_artifacts() {
     fi
 
     if [ ${#candidate_dirs[@]} -gt 0 ]; then
-        print_warning "Found large untracked directories: ${candidate_dirs[*]}"
-        print_warning "Moving them to ephemeral storage can save space, but it might break build scripts."
-        echo -n "    Move them to ephemeral storage? [y/N] "
+        print_warning "Found large untracked directories: ${candidate_dirs[*]}" >&2
+        print_warning "Moving them to ephemeral storage can save space, but it might break build scripts." >&2
+        echo -n "    Move them to ephemeral storage? [y/N] " >&2
         read -r
         echo >&2
         if [[ $REPLY =~ ^[Yy]$ ]]; then
@@ -130,23 +138,24 @@ _symlink_artifacts() {
 
     local final_dirs_to_process=$(echo "${auto_detected_dirs[@]} ${manual_dirs[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')
 
-    if [ -z "$final_dirs_to_process" ]; then print_info "  - No artifact directories to process."; return; fi
+    if [ -z "$final_dirs_to_process" ]; then print_info "  - No artifact directories to process." >&2; return; fi
 
-    for dir_name in $final_dirs_to_process; do
+    for dir_name in $final_dirs_to_process;
+ do
         local project_artifact_path="$project_path/$dir_name"
         local cache_target_path="$ephemeral_project_cache_dir/$dir_name"
         
         mkdir -p "$cache_target_path"
 
         if [ -d "$project_artifact_path" ] && [ ! -L "$project_artifact_path" ]; then
-            print_info "  - Migrating '$dir_name' to ephemeral storage..."
+            print_info "  - Migrating '$dir_name' to ephemeral storage..." >&2
             rsync -av "$project_artifact_path/" "$cache_target_path/" & 
             local rsync_pid=$!
             spinner $rsync_pid "Migrating '$dir_name' to ephemeral storage..." 
             wait $rsync_pid
             if [ $? -eq 0 ]; then
                 rm -rf "$project_artifact_path"
-                print_success "  - Migration complete."
+                print_success "  - Migration complete." >&2
             else
                 print_error "    Error: rsync failed for '$dir_name'. Original directory left untouched."
                 continue
@@ -156,7 +165,7 @@ _symlink_artifacts() {
         if [ ! -d "$project_artifact_path" ]; then rm -f "$project_artifact_path"; fi
         if [ ! -e "$project_artifact_path" ]; then
             ln -s "$cache_target_path" "$project_artifact_path"
-            print_info "  - Symlinked '$dir_name' to ephemeral cache."
+            print_info "  - Symlinked '$dir_name' to ephemeral cache." >&2
         fi
     done
 }
@@ -164,7 +173,8 @@ _symlink_artifacts() {
 init_database() {
     if ! command -v sqlite3 &> /dev/null; then print_error "sqlite3 is not installed."; exit 1; fi
     if [ -f "$DB_FILE" ]; then
-        if ! sqlite3 "$DB_FILE" ".tables" &> /dev/null; then
+        if ! sqlite3 "$DB_FILE" ".tables" &> /dev/null;
+ then
             print_warning "The workspace database appears to be corrupted."
             echo -n "Do you want to recreate it? (This will delete your workspace history) [y/N] "
             read -r
@@ -197,7 +207,8 @@ _get_path_by_name() {
     local project_name_to_find="$1"
     # This is inefficient, but safer than a simple LIKE in sql
     local db_output=$(sqlite3 -separator '|' "$DB_FILE" "SELECT path FROM workspaces;")
-    echo "$db_output" | while IFS='|' read -r path; do
+    echo "$db_output" | while IFS='|' read -r path;
+ do
         if [ "$(basename "$path")" = "$project_name_to_find" ]; then
             echo "$path"
             return
@@ -229,12 +240,14 @@ _get_git_status() {
     local status
     local color
 
-    if ! git -C "$path" diff-index --quiet HEAD --; then
+    if ! git -C "$path" diff-index --quiet HEAD --;
+ then
         status="[!M]"
         color="$COLOR_YELLOW"
     else
         # Check if behind remote
-        if ! git -C "$path" fetch --quiet 2>/dev/null; then
+        if ! git -C "$path" fetch --quiet 2>/dev/null;
+ then
             status="[E]"
             color="$COLOR_RED"
         elif [ $(git -C "$path" rev-list HEAD...@{u} --count) -gt 0 ]; then
@@ -257,7 +270,8 @@ _get_git_status_json() {
     local last_commit_date=$(git -C "$path" log -1 --format=%cr 2>/dev/null)
     local status
 
-    if ! git -C "$path" diff-index --quiet HEAD --; then
+    if ! git -C "$path" diff-index --quiet HEAD --;
+ then
         status="modified"
     else
         git -C "$path" fetch --quiet
@@ -278,7 +292,7 @@ _handle_interactive_selection() {
     fi
 
     local db_output
-    db_output=$(sqlite3 -separator '|' "$DB_FILE" \
+    db_output=$(sqlite3 -separator '|' "$DB_FILE" 
         "SELECT path, last_access FROM workspaces ORDER BY (frequency * (1.0 / (strftime('%s','now') - last_access + 1))) DESC, last_access DESC LIMIT 50;")
 
     if [ -z "$db_output" ]; then
@@ -288,9 +302,11 @@ _handle_interactive_selection() {
 
     local project_path_to_enter=""
 
-    if command -v fzf &>/dev/null; then
+    if command -v fzf &>/dev/null;
+ then
         local fzf_input
-        fzf_input=$(echo "$db_output" | while IFS='|' read -r path last_access; do
+        fzf_input=$(echo "$db_output" | while IFS='|' read -r path last_access;
+ do
             local project_name=$(basename "$path")
             local project_icon=$(_get_project_icon "$path")
             local git_status=$(_get_git_status "$path")
@@ -304,7 +320,8 @@ _handle_interactive_selection() {
         print_info "Recent workspaces (ranked by frecency):"
         local i=1
         local paths=()
-        echo "$db_output" | while IFS='|' read -r path last_access; do
+        echo "$db_output" | while IFS='|' read -r path last_access;
+ do
             local project_name=$(basename "$path")
             local project_icon=$(_get_project_icon "$path")
             local git_status=$(_get_git_status "$path")
@@ -338,13 +355,15 @@ _handle_json_output() {
     if [ ! -f "$DB_FILE" ]; then echo "[]"; exit 0; fi
 
     local db_output
-    db_output=$(sqlite3 -separator '|' "$DB_FILE" \
+    db_output=$(sqlite3 -separator '|' "$DB_FILE" 
         "SELECT path, git_url, last_access FROM workspaces ORDER BY (frequency * (1.0 / (strftime('%s','now') - last_access + 1))) DESC, last_access DESC LIMIT 50;")
 
     if [ -z "$db_output" ]; then echo "[]"; exit 0; fi
 
-    if command -v jq &>/dev/null; then
-        echo "$db_output" | while IFS='|' read -r path git_url last_access; do
+    if command -v jq &>/dev/null;
+ then
+        echo "$db_output" | while IFS='|' read -r path git_url last_access;
+ do
             local project_name=$(basename "$path")
             local git_status_str=$(_get_git_status_json "$path")
             local status=$(echo "$git_status_str" | cut -d'|' -f1)
@@ -359,7 +378,8 @@ _handle_json_output() {
     else
         echo "["
         first=true
-        echo "$db_output" | while IFS='|' read -r path git_url last_access; do
+        echo "$db_output" | while IFS='|' read -r path git_url last_access;
+ do
             if [ "$first" = true ]; then first=false; else echo ","; fi
             local project_name=$(basename "$path")
             local git_status_str=$(_get_git_status_json "$path")
@@ -408,13 +428,14 @@ _handle_project_creation_or_opening() {
     local SANITIZED_NAME=$(echo "$PROJECT_NAME" | sed -e 's|https://github.com/||' -e 's|/| |g' | awk '{print $NF}' | sed 's/\.git//')
     local PROJECT_PATH="$WORKSPACE_BASE_DIR/$SANITIZED_NAME"
 
-    if [ ! -d "$PROJECT_PATH" ] && command -v autojump &>/dev/null; then
+    if [ ! -d "$PROJECT_PATH" ] && command -v autojump &>/dev/null;
+ then
         local autojump_path=$(autojump -s "$SANITIZED_NAME")
         if [ -n "$autojump_path" ] && [ -d "$autojump_path" ]; then
-            print_info "Found matching directory with autojump: $autojump_path"
-            echo -n "Do you want to treat this as a workspace? [Y/n] "
+            print_info "Found matching directory with autojump: $autojump_path" >&2
+            echo -n "Do you want to treat this as a workspace? [Y/n] " >&2
             read -r
-            echo
+            echo >&2
             if [[ ! $REPLY =~ ^[Nn]$ ]]; then
                 PROJECT_PATH="$autojump_path"
                 SANITIZED_NAME=$(basename "$autojump_path")
@@ -423,20 +444,20 @@ _handle_project_creation_or_opening() {
     fi
 
     if [ "$IS_GIT_REPO" = true ] && [ -d "$PROJECT_PATH" ] && [ ! -d "$PROJECT_PATH/.git" ]; then
-        print_warning "A non-Git workspace named '$SANITIZED_NAME' already exists."
-        echo -n "Do you want to replace it by cloning '$INPUT'? [y/N] "
+        print_warning "A non-Git workspace named '$SANITIZED_NAME' already exists." >&2
+        echo -n "Do you want to replace it by cloning '$INPUT'? [y/N] " >&2
         read -r
-        echo
+        echo >&2
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             rm -rf "$PROJECT_PATH"
         else
-            print_info "Operation cancelled. Opening existing workspace."
+            print_info "Operation cancelled. Opening existing workspace." >&2
         fi
     fi
 
     if [ ! -d "$PROJECT_PATH" ]; then
         if [ "$IS_GIT_REPO" = true ]; then
-            print_info "Cloning '$INPUT' into '$PROJECT_PATH'..."
+            print_info "Cloning '$INPUT' into '$PROJECT_PATH'..." >&2
             git clone "$INPUT" "$PROJECT_PATH" & 
             local git_pid=$!
             spinner $git_pid "Cloning '$INPUT' into '$PROJECT_PATH'..." 
@@ -446,13 +467,13 @@ _handle_project_creation_or_opening() {
                 rm -rf "$PROJECT_PATH" # Clean up failed clone
                 exit 1 # Exit with an error
             fi
-            print_success "Cloning complete."
+            print_success "Cloning complete." >&2
         else
-            print_info "Creating new empty workspace '$PROJECT_PATH'..."
+            print_info "Creating new empty workspace '$PROJECT_PATH'..." >&2
             mkdir -p "$PROJECT_PATH"
         fi
     else
-        print_info "Workspace '$SANITIZED_NAME' already exists."
+        print_info "Workspace '$SANITIZED_NAME' already exists." >&2
     fi
 
     _symlink_artifacts "$PROJECT_PATH" "$SANITIZED_NAME"
@@ -463,7 +484,7 @@ _handle_project_creation_or_opening() {
         GIT_URL=$(git -C "$PROJECT_PATH" config --get remote.origin.url)
         if [[ "$GIT_URL" == https://github.com/* ]]; then
             GIT_URL=$(echo "$GIT_URL" | sed 's|https://github.com/|git@github.com:|')
-            print_info "Converting clone URL to SSH for background warming: $GIT_URL"
+            print_info "Converting clone URL to SSH for background warming: $GIT_URL" >&2
         fi
     fi
     
@@ -476,21 +497,24 @@ doctor() {
     local all_ok=true
 
     printf "1. Checking core dependencies: "
-    if ! command -v git &>/dev/null || ! command -v sqlite3 &>/dev/null || ! command -v rsync &>/dev/null; then
+    if ! command -v git &>/dev/null || ! command -v sqlite3 &>/dev/null || ! command -v rsync &>/dev/null;
+ then
         print_error "FAIL (git, sqlite3, or rsync is missing)" ; all_ok=false
     else
         print_success "OK"
     fi
 
     printf "2. Checking for tput: "
-    if ! command -v tput &>/dev/null; then
+    if ! command -v tput &>/dev/null;
+ then
         print_warning "WARNING (tput is not installed, text formatting will be disabled)"
     else
         print_success "OK"
     fi
 
     printf "3. Checking for jq (optional but recommended for VS Code extension): "
-    if ! command -v jq &>/dev/null; then
+    if ! command -v jq &>/dev/null;
+ then
         print_warning "WARNING (jq is not installed)"
     else
         print_success "OK"
@@ -533,19 +557,19 @@ doctor() {
 
 main() {
     case "$1" in
-        --help|-h) show_help; exit 0 ;;
+        --help|-h) show_help; exit 0 ;; 
         sync) 
-            print_info "Syncing workspace..."
+            print_info "Syncing workspace..." >&2
             _symlink_artifacts "$(pwd)" "$(basename "$(pwd)")"
-            print_success "Workspace sync complete." 
-            exit 0 ;;
+            print_success "Workspace sync complete." >&2
+            exit 0 ;; 
         warm) 
-            print_info "Warming workspaces..."
+            print_info "Warming workspaces..." >&2
             bash "$WARM_SCRIPT_PATH" & 
             spinner $! "Warming workspaces..." 
-            print_success "Workspace warming complete." 
-            exit 0 ;;
-        doctor) doctor; exit 0 ;;
+            print_success "Workspace warming complete." >&2
+            exit 0 ;; 
+        doctor) doctor; exit 0 ;; 
         delete)
             local name_to_delete="$2"
             if [ -z "$name_to_delete" ]; then
@@ -563,14 +587,14 @@ main() {
             rm -rf "$path_to_delete"
             sqlite3 "$DB_FILE" "DELETE FROM workspaces WHERE path='$path_to_delete';"
             print_success "Workspace deleted: $path_to_delete"
-            exit 0 ;;
-        --get-base-dir) echo "$WORKSPACE_BASE_DIR"; exit 0 ;;
-        --json) _handle_json_output; exit 0 ;;
+            exit 0 ;; 
+        --get-base-dir) echo "$WORKSPACE_BASE_DIR"; exit 0 ;; 
+        --json) _handle_json_output; exit 0 ;; 
         -*)
             print_error "Unknown option '$1'"
             show_help >&2
             exit 1
-            ;;
+            ;; 
     esac
 
     init_database

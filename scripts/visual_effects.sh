@@ -1,4 +1,3 @@
-
 #!/bin/bash
 
 # --- Visual Effects ---
@@ -24,16 +23,16 @@ spinner() {
     local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     local delay=0.05
 
-    echo -n "$message "
+    echo -n "$message " >&2
     while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
         local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
+        printf " [%c]  " "$spinstr" >&2
         local spinstr=$temp${spinstr%"$temp"}
         sleep $delay
-        printf "\b\b\b\b\b\b"
+        printf "\b\b\b\b\b\b" >&2
     done
-    printf "    \b\b\b\b"
-    echo " "
+    printf "    \b\b\b\b" >&2
+    echo " " >&2
 }
 
 # --- Progress Bar ---
@@ -57,7 +56,7 @@ progress_bar() {
 
 # --- Print Functions ---
 print_success() {
-    printf "${COLOR_GREEN}✓ %s${COLOR_RESET}\n" "$1"
+    printf "${COLOR_GREEN}✓ %s${COLOR_RESET}\n" "$1" >&2
 }
 
 print_error() {
@@ -65,9 +64,9 @@ print_error() {
 }
 
 print_warning() {
-    printf "${COLOR_YELLOW}⚠ %s${COLOR_RESET}\n" "$1"
+    printf "${COLOR_YELLOW}⚠ %s${COLOR_RESET}\n" "$1" >&2
 }
 
 print_info() {
-    printf "${COLOR_BLUE}ℹ %s${COLOR_RESET}\n" "$1"
+    printf "${COLOR_BLUE}ℹ %s${COLOR_RESET}\n" "$1" >&2
 }
