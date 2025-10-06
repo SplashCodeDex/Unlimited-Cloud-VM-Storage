@@ -19,13 +19,18 @@ WARM_SCRIPT_PATH="$SCRIPT_DIR/warm_workspaces.sh"
 
 show_help() {
     cat << EOF
-Usage: workspace [COMMAND|PROJECT_NAME|GIT_URL]
+Usage: workspace [OPTIONS] [COMMAND|PROJECT_NAME|GIT_URL]
 
 A tool for creating, managing, and switching between ephemeral development workspaces.
 
+OPTIONS:
+  -o, --open    After switching to a workspace, prompt to open it in a configured editor.
+
 COMMANDS:
   warm          Manually refresh all Git-based workspaces by fetching the latest changes.
+  sync          Rescan the current directory for artifacts to symlink (use inside a workspace).
   doctor        Check for common problems and offer solutions.
+  delete <name> Delete a workspace from your history and filesystem.
   --json        Output a JSON list of workspaces for machine consumption.
   --help        Show this help message.
 
@@ -186,6 +191,18 @@ _update_history() {
     else
         sqlite3 "$DB_FILE" "UPDATE workspaces SET last_access=$current_time, frequency=frequency+1 WHERE path='$project_path';"
     fi
+}
+
+_get_path_by_name() {
+    local project_name_to_find="$1"
+    # This is inefficient, but safer than a simple LIKE in sql
+    local db_output=$(sqlite3 -separator '|' "$DB_FILE" "SELECT path FROM workspaces;")
+    echo "$db_output" | while IFS='|' read -r path; do
+        if [ "$(basename "$path")" = "$project_name_to_find" ]; then
+            echo "$path"
+            return
+        fi
+    done
 }
 
 _get_project_icon() {
@@ -481,12 +498,14 @@ doctor() {
 
     printf "4. Checking shell integration: "
     local shell_name=$(basename "$SHELL")
-    local profile_file=""
-    if [ "$shell_name" = "bash" ]; then profile_file="$HOME/.bashrc";
-    elif [ "$shell_name" = "zsh" ]; then profile_file="$HOME/.zshrc"; fi
-    
-    if ! grep -q "# >>> workspace tool initialize >>>" "$profile_file"; then
-        print_error "FAIL ($profile_file is not correctly configured)" ; all_ok=false
+    local profile_to_update=""
+    if [ "$shell_name" = "bash" ]; then profile_to_update="$HOME/.bashrc"; fi
+    if [ "$shell_name" = "zsh" ]; then profile_to_update="$HOME/.zshrc"; fi
+
+    if [ -z "$profile_to_update" ]; then
+        print_warning "WARNING (Unsupported shell '$shell_name', manual check required)"
+    elif ! grep -q "# >>> workspace tool initialize >>>" "$profile_to_update"; then
+        print_error "FAIL ($profile_to_update is not correctly configured)" ; all_ok=false
     else
         print_success "OK"
     fi
@@ -527,15 +546,20 @@ main() {
             print_success "Workspace warming complete." 
             exit 0 ;;
         doctor) doctor; exit 0 ;;
-        --delete) 
-            local path_to_delete="$2"
-            if [ -z "$path_to_delete" ]; then
-                print_error "Please provide a path to delete."
+        delete)
+            local name_to_delete="$2"
+            if [ -z "$name_to_delete" ]; then
+                print_error "Please provide a workspace name to delete." >&2
                 exit 1
             fi
-            if [ ! -d "$path_to_delete" ]; then
-                print_error "Directory not found: $path_to_delete"
+            
+            local path_to_delete=$(_get_path_by_name "$name_to_delete")
+
+            if [ -z "$path_to_delete" ] || [ ! -d "$path_to_delete" ]; then
+                print_error "Workspace '$name_to_delete' not found." >&2
+                exit 1
             fi
+
             rm -rf "$path_to_delete"
             sqlite3 "$DB_FILE" "DELETE FROM workspaces WHERE path='$path_to_delete';"
             print_success "Workspace deleted: $path_to_delete"

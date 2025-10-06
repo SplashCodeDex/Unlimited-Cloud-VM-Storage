@@ -19,6 +19,7 @@ VISUAL_EFFECTS_SCRIPT="$INSTALL_DIR/scripts/visual_effects.sh"
 DEST_LINK="$BIN_DIR/workspace"
 CONFIG_DIR="$HOME/.config/workspace"
 CONFIG_SCRIPT="$CONFIG_DIR/workspace.sh"
+EDITOR_CONFIG_FILE="$CONFIG_DIR/editors.conf"
 WARM_SCRIPT_PATH="$INSTALL_DIR/scripts/warm_workspaces.sh"
 FIRST_RUN_FLAG="$CONFIG_DIR/.first_run_completed"
 MANIFEST_FILE="$CONFIG_DIR/install-manifest.txt"
@@ -197,7 +198,26 @@ install_missing_dependencies() {
     esac
 }
 
+setup_editor_config() {
+    echo -e "\n(2/5) Creating editor configuration..."
+    if [ -f "$EDITOR_CONFIG_FILE" ]; then
+        echo "  - Editor config already exists."
+        return
+    fi
 
+    cat << EOF > "$EDITOR_CONFIG_FILE"
+# Add your custom editor commands here.
+# The format is <NAME>:<COMMAND>
+# The command will be executed in the workspace directory.
+VS Code:code .
+Vim:vim .
+IntelliJ IDEA:idea .
+GoLand:goland .
+PyCharm:pycharm .
+EOF
+    echo "file:$EDITOR_CONFIG_FILE" >> "$MANIFEST_FILE"
+    echo "  - Created default editor config at $EDITOR_CONFIG_FILE"
+}
 
 setup_shell_config() {
     echo -e "\n(3/5) Creating shell function and configuration..."
@@ -209,7 +229,18 @@ setup_shell_config() {
 
 workspace() {
     local executable="__DEST_LINK__"
-    local output="$($executable "$@")"
+    local open_editor_prompt=false
+    local args=()
+
+    for arg in "$@"; do
+        if [[ "$arg" == "-o" || "$arg" == "--open" ]]; then
+            open_editor_prompt=true
+        else
+            args+=("$arg")
+        fi
+    done
+
+    local output="$($executable "${args[@]}")"
     local exit_code="$?"
 
     if [ "$exit_code" -eq 0 ]; then
@@ -217,6 +248,51 @@ workspace() {
             local dir_to_change_to="${output#__cd__:}"
             if [ -d "$dir_to_change_to" ]; then
                 cd "$dir_to_change_to"
+
+                if [ "$open_editor_prompt" = true ]; then
+                    local editor_config_file="__EDITOR_CONFIG_FILE__"
+                    if [ ! -f "$editor_config_file" ]; then
+                        echo "Warning: Editor config file not found at $editor_config_file" >&2
+                        return
+                    fi
+
+                    local available_editors=()
+                    local editor_names=()
+
+                    while IFS=: read -r name cmd; do
+                        [[ "$name" =~ ^\s*# ]] || [ -z "$name" ] && continue
+                        local editor_cmd=$(echo "$cmd" | awk '{print $1}')
+                        if command -v "$editor_cmd" &>/dev/null; then
+                            available_editors+=("$name:$cmd")
+                            editor_names+=("$name")
+                        fi
+                    done < "$editor_config_file"
+
+                    if [ ${#available_editors[@]} -eq 0 ]; then
+                        echo "No configured and installed editors found in $editor_config_file" >&2
+                        return
+                    fi
+
+                    echo "Select an editor to open this workspace:"
+                    local choice
+                    PS3="Enter number: "
+                    select choice in "${editor_names[@]}" "Cancel"; do
+                        if [ "$choice" = "Cancel" ]; then
+                            break
+                        fi
+                        if [ -n "$choice" ]; then
+                            for editor in "${available_editors[@]}"; do
+                                if [[ "$editor" == "$choice:"* ]]; then
+                                    local command_to_run="${editor#*:}"
+                                    (eval "$command_to_run" &) >/dev/null 2>&1
+                                    break 2
+                                fi
+                            done
+                        else
+                            echo "Invalid selection."
+                        fi
+                    done
+                fi
             else
                 echo "Error: Target directory '$dir_to_change_to' does not exist." >&2
             fi
@@ -236,6 +312,7 @@ _warm_workspaces() {
 EOF
     sed -i "s|__DEST_LINK__|$DEST_LINK|g" "$CONFIG_SCRIPT"
     sed -i "s|__WARM_SCRIPT_PATH__|$WARM_SCRIPT_PATH|g" "$CONFIG_SCRIPT"
+    sed -i "s|__EDITOR_CONFIG_FILE__|$EDITOR_CONFIG_FILE|g" "$CONFIG_SCRIPT"
     echo "file:$CONFIG_SCRIPT" >> "$MANIFEST_FILE"
     chmod +x "$CONFIG_SCRIPT"
     echo "  - Created $CONFIG_SCRIPT"
@@ -340,6 +417,7 @@ install() {
     fi
 
     check_dependencies
+    setup_editor_config
     setup_shell_config
     update_standard_shell
     if [ -n "$PROFILE_UPDATED" ]; then

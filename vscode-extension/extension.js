@@ -117,21 +117,28 @@ function activate(context) {
             const confirm = await vscode.window.showWarningMessage(`Are you sure you want to delete the workspace "${workspace.label}"?`, { modal: true }, 'Delete');
             if (confirm === 'Delete') {
                 try {
+                    // This check is kept as a client-side validation, even though the CLI is now safer.
                     const baseDir = await getWorkspaceBaseDir();
                     if (!workspace.path.startsWith(baseDir)) {
                         vscode.window.showErrorMessage('Cannot delete a workspace outside of the workspace base directory.');
                         return;
                     }
 
-                    // Sanitize the path to prevent command injection
-                    const sanitizedPath = workspace.path.replace(/[^a-zA-Z0-9_\-\/]/g, '');
+                    // Sanitize the name to prevent shell command injection.
+                    const workspaceName = workspace.label;
+                    const sanitizedName = workspaceName.replace(/'/g, "'\\''");
 
-                    const terminal = vscode.window.createTerminal(`Workspace: ${workspace.label}`);
-                    terminal.sendText(`workspace --delete ${sanitizedPath}`);
+                    const terminal = vscode.window.createTerminal(`Deleting: ${workspace.label}`);
+                    // Use the new, safer name-based delete command.
+                    terminal.sendText(`workspace delete '${sanitizedName}'`);
                     terminal.show();
-                    workspaceProvider.refresh();
+                    
+                    // Add a small delay to give the CLI time to delete the entry, then refresh.
+                    setTimeout(() => workspaceProvider.refresh(), 1000);
+
                 } catch (error) {
                     vscode.window.showErrorMessage(`Error deleting workspace: ${error}`);
+                    workspaceProvider.refresh();
                 }
             }
         }

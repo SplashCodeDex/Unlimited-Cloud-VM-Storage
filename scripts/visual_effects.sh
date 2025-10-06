@@ -57,17 +57,17 @@ progress_bar() {
 
 # --- Print Functions ---
 print_success() {
-    echo -e "${COLOR_GREEN}✓ %s${COLOR_RESET}" "$1"
+    printf "${COLOR_GREEN}✓ %s${COLOR_RESET}\n" "$1"
 }
 
 print_error() {
-    echo -e "${COLOR_RED}✗ %s${COLOR_RESET}" "$1" >&2
+    printf "${COLOR_RED}✗ %s${COLOR_RESET}\n" "$1" >&2
 }
 
 print_warning() {
-    echo -e "${COLOR_YELLOW}⚠ %s${COLOR_RESET}" "$1"
+    printf "${COLOR_YELLOW}⚠ %s${COLOR_RESET}\n" "$1"
 }
 
 print_info() {
-    echo -e "${COLOR_BLUE}ℹ %s${COLOR_RESET}" "$1"
+    printf "${COLOR_BLUE}ℹ %s${COLOR_RESET}\n" "$1"
 }

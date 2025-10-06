@@ -37,7 +37,6 @@
 | **🤖 Smart Integration** | Seamlessly integrates with existing tools like `autojump` to find projects and `fzf` for a powerful interactive menu. |
 | **🩺 Health Checks** | The `workspace doctor` command runs a full suite of diagnostics to ensure your environment is healthy and configured correctly. |
 | **🚀 Non-Invasive Installation**| The smart installer respects your existing shell configuration and adds itself non-destructively. Uninstallation is just as clean. |
-| **🧪 Automated Testing** | A full suite of tests ensures the stability and reliability of the project as it grows. |
 | **🚀 Automatic Symlinking** | Automatically detects and moves large, untracked directories (like `node_modules`) to ephemeral storage to save space. |
 
 ---
@@ -102,6 +101,10 @@ You can also interact with workspaces directly:
 *   `workspace <name>`: Create or switch to a local workspace named `<name>`.
 *   `workspace <git_url>`: Clone a git repository and create a new workspace.
 
+### Options
+
+*   `workspace <name> --open` or `workspace <name> -o`: After switching into a workspace, an interactive menu will appear, allowing you to open the project in your editor of choice.
+
 ### Commands
 
 *   `workspace warm`: Manually refresh all Git-based workspaces by fetching the latest changes.
@@ -113,6 +116,10 @@ You can also interact with workspaces directly:
 ---
 
 ## Configuration
+
+The tool is configured via files in the `scripts` and `~/.config/workspace` directories.
+
+### Main Configuration
 
 The main configuration file is located at `scripts/config.sh`. You can modify this file to change the default behavior of the workspace tool.
 
@@ -126,6 +133,24 @@ The main configuration file is located at `scripts/config.sh`. You can modify th
 *   `WARMING_PROJECT_COUNT`: The number of projects to pre-warm in the background.
 *   `LARGE_DIR_THRESHOLD_KB`: The threshold for detecting large, untracked directories (in KB).
 *   `DISABLE_AUTO_SYMLINK`: Disable automatic symlinking of large directories.
+
+### Editor Configuration
+
+To use the `--open` feature, you can configure your preferred editors in the `~/.config/workspace/editors.conf` file. The installer creates this file with a list of common editors.
+
+The format is simple: `DISPLAY_NAME:COMMAND`. The command will be executed within the project's directory.
+
+**Default `editors.conf`:**
+```
+# Add your custom editor commands here.
+# The format is <NAME>:<COMMAND>
+VS Code:code .
+Vim:vim .
+IntelliJ IDEA:idea .
+GoLand:goland .
+PyCharm:pycharm .
+```
+The tool is smart enough to only show you editors from this list that are actually installed on your system.
 
 ---
 
