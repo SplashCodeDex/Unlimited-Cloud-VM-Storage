@@ -22,6 +22,7 @@ spinner() {
     local message=$2
     local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     local delay=0.05
+    local start_time=$(date +%s)
 
     echo -n "$message " >&2
     while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
@@ -31,6 +32,15 @@ spinner() {
         sleep $delay
         printf "\b\b\b\b\b\b" >&2
     done
+
+    local end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+    local min_duration=1 # Minimum spinner duration in seconds
+
+    if [ "$duration" -lt "$min_duration" ]; then
+        sleep $(echo "$min_duration - $duration" | bc)
+    fi
+
     printf "    \b\b\b\b" >&2
     echo " " >&2
 }
