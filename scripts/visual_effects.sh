@@ -18,6 +18,10 @@ export TEXT_RESET=$(tput sgr0)
 
 # --- Spinner ---
 spinner() {
+    if [ "$ANIMATIONS_ENABLED" = false ]; then
+        return
+    fi
+
     local pid=$1
     local message=$2
     local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
@@ -38,7 +42,11 @@ spinner() {
     local min_duration=1 # Minimum spinner duration in seconds
 
     if [ "$duration" -lt "$min_duration" ]; then
-        sleep $(echo "$min_duration - $duration" | bc)
+        if command -v bc &>/dev/null; then
+            sleep $(echo "$min_duration - $duration" | bc)
+        else
+            sleep 1
+        fi
     fi
 
     printf "    \b\b\b\b" >&2

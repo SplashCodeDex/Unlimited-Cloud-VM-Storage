@@ -14,6 +14,9 @@ SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
 source "$SCRIPT_DIR/config.sh"
 source "$SCRIPT_DIR/visual_effects.sh" # Source the new visual effects script
 
+# --- Globals ---
+ANIMATIONS_ENABLED=true
+
 # --- Derived Configurations ---
 DETECTORS_DIR="$SCRIPT_DIR/detectors"
 PROJECT_ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -30,6 +33,7 @@ A tool for creating, managing, and switching between ephemeral development works
 
 OPTIONS:
   -o, --open    After switching to a workspace, prompt to open it in a configured editor.
+  --no-animation Disable animations.
 
 COMMANDS:
   warm          Manually refresh all Git-based workspaces by fetching the latest changes.
@@ -110,7 +114,7 @@ _symlink_artifacts() {
     local candidate_dirs=()
     if [ -d "$project_path/.git" ]; then
         print_info "  - Scanning for large, untracked directories..." >&2
-        for dir in "$project_path"/*/;
+        for dir in "$project_path"/*/; 
  do
             dir_name=$(basename "$dir")
             if [[ " ${auto_detected_dirs[@]} " =~ " ${dir_name} " ]] || [[ " ${manual_dirs[@]} " =~ " ${dir_name} " ]] || [[ "$dir_name" == .* ]]; then continue; fi
@@ -407,7 +411,7 @@ _handle_numeric_selection() {
     fi
     
     local project_name=$(basename "$path_to_enter")
-    _symlink_artifacts "$path_to_enter" "$project_name"
+    _symlink_artifacts "$project_name_to_find" "$project_name"
     _link_configs "$path_to_enter"
     _update_history "" "$path_to_enter"
     echo "$path_to_enter"
@@ -556,7 +560,19 @@ doctor() {
 }
 
 main() {
-    case "$1" in
+    local args=()
+    for arg in "$@"; do
+        case "$arg" in
+            --no-animation)
+                ANIMATIONS_ENABLED=false
+                ;;
+            *)
+                args+=("$arg")
+                ;;
+        esac
+    done
+
+    case "${args[0]}" in
         --help|-h) show_help; exit 0 ;; 
         sync) 
             print_info "Syncing workspace..." >&2
@@ -571,7 +587,7 @@ main() {
             exit 0 ;; 
         doctor) doctor; exit 0 ;; 
         delete)
-            local name_to_delete="$2"
+            local name_to_delete="${args[1]}"
             if [ -z "$name_to_delete" ]; then
                 print_error "Please provide a workspace name to delete." >&2
                 exit 1
@@ -591,7 +607,7 @@ main() {
         --get-base-dir) echo "$WORKSPACE_BASE_DIR"; exit 0 ;; 
         --json) _handle_json_output; exit 0 ;; 
         -*)
-            print_error "Unknown option '$1'"
+            print_error "Unknown option '${args[0]}'"
             show_help >&2
             exit 1
             ;; 
@@ -600,14 +616,14 @@ main() {
     init_database
     mkdir -p "$WORKSPACE_BASE_DIR"
 
-    if [[ -z "$1" ]]; then
+    if [[ -z "${args[0]}" ]]; then
         local path_to_enter=$(_handle_interactive_selection)
         echo "__cd__:$path_to_enter"
-    elif [[ "$1" =~ ^[0-9]+$ ]]; then
-        local path_to_enter=$(_handle_numeric_selection "$1")
+    elif [[ "${args[0]}" =~ ^[0-9]+$ ]]; then
+        local path_to_enter=$(_handle_numeric_selection "${args[0]}")
         echo "__cd__:$path_to_enter"
     else
-        local path_to_enter=$(_handle_project_creation_or_opening "$1")
+        local path_to_enter=$(_handle_project_creation_or_opening "${args[0]}")
         echo "__cd__:$path_to_enter"
     fi
 }
