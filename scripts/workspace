@@ -33,7 +33,7 @@ A tool for creating, managing, and switching between ephemeral development works
 
 OPTIONS:
   -o, --open    After switching to a workspace, prompt to open it in a configured editor.
-  --no-animation Disable animations.
+
 
 COMMANDS:
   warm          Manually refresh all Git-based workspaces by fetching the latest changes.
@@ -563,9 +563,7 @@ main() {
     local args=()
     for arg in "$@"; do
         case "$arg" in
-            --no-animation)
-                ANIMATIONS_ENABLED=false
-                ;;
+
             *)
                 args+=("$arg")
                 ;;
