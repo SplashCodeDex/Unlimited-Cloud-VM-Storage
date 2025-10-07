@@ -344,7 +344,10 @@ EOF
 
 add_to_profile() {
     local profile_to_update="$1"
-    touch "$profile_to_update"
+    if [ ! -f "$profile_to_update" ]; then
+        echo "  - $profile_to_update not found. Copying from template..."
+        cp "$INSTALL_DIR/bash/.bashrc" "$profile_to_update"
+    fi
 
     local init_block
     init_block=$(cat <<EOF
