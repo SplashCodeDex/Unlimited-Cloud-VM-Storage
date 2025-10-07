@@ -344,9 +344,35 @@ EOF
 
 add_to_profile() {
     local profile_to_update="$1"
+    local profile_dir=$(dirname "$profile_to_update")
+
+    # Pre-flight checks
+    if readlink "$profile_to_update" >/dev/null; then
+        abort "Your shell profile '$profile_to_update' is a symbolic link. For safety, this installer will not modify it. Please handle installation manually."
+    fi
+
+    if [ -f "$profile_to_update" ] && [ ! -w "$profile_to_update" ]; then
+        abort "Your shell profile '$profile_to_update' is not writable. Please fix permissions and run this script again."
+    fi
+
+    if [ ! -d "$profile_dir" ]; then
+        mkdir -p "$profile_dir" || abort "Could not create directory '$profile_dir'."
+    fi
+
+    if [ ! -w "$profile_dir" ]; then
+        abort "The directory '$profile_dir' is not writable. Please fix permissions and run this script again."
+    fi
+
+    # File creation logic
     if [ ! -f "$profile_to_update" ]; then
-        echo "  - $profile_to_update not found. Copying from template..."
-        cp "$INSTALL_DIR/bash/.bashrc" "$profile_to_update"
+        local template_bashrc="$INSTALL_DIR/bash/.bashrc"
+        if [ -f "$template_bashrc" ]; then
+            echo "  - Shell profile not found. Creating '$profile_to_update' from template..."
+            cp "$template_bashrc" "$profile_to_update"
+        else
+            echo "  - Shell profile not found. Creating empty '$profile_to_update'..."
+            touch "$profile_to_update"
+        fi
     fi
 
     local init_block
@@ -382,7 +408,11 @@ update_standard_shell() {
 
     if [ -z "$profile_to_update" ]; then
         echo "Warning: Unsupported shell '$shell_name'."
-        echo "Please manually add the following lines to your shell's profile file (e.g., ~/.profile, ~/.config/fish/config.fish):"
+        echo "Please manually add the equivalent of the following lines to your shell's profile file."
+        echo -e "\nFor fish shell (e.g., ~/.config/fish/config.fish):"
+        echo "    set -gx PATH \"$INSTALL_DIR/bin\" \$PATH"
+        echo "    if test -f \"$CONFIG_SCRIPT\"; source \"$CONFIG_SCRIPT\"; end"
+        echo -e "\nFor POSIX-compliant shells (e.g., ~/.profile):"
         echo "    export PATH=\"$INSTALL_DIR/bin:\$PATH\""
         echo "    if [ -f \"$CONFIG_SCRIPT\" ]; then source \"$CONFIG_SCRIPT\"; fi"
         export PATH="$INSTALL_DIR/bin:$PATH"
@@ -482,8 +512,15 @@ standard_uninstall() {
     local profile_files=("$HOME/.bashrc" "$HOME/.zshrc")
     for profile_file in "${profile_files[@]}"; do
         if [ -f "$profile_file" ]; then
-            sed -i.bak '/^# >>> workspace tool initialize >>>/,/# <<< workspace tool initialize <<</d' "$profile_file" >/dev/null 2>&1 || true
-            rm -f "${profile_file}.bak"
+            local start_marker="# >>> workspace tool initialize >>>"
+            local end_marker="# <<< workspace tool initialize <<<"
+            if grep -q "$start_marker" "$profile_file" && grep -q "$end_marker" "$profile_file"; then
+                echo "   - Removing shell profile entry from $profile_file..."
+                sed -i.bak "/^$start_marker/,/^$end_marker/d" "$profile_file"
+                rm -f "${profile_file}.bak"
+            elif grep -q "$start_marker" "$profile_file"; then
+                echo "Warning: Found start of workspace tool block in '$profile_file' but not the end. Cannot safely remove. Please remove manually."
+            fi
         fi
     done
 }
@@ -514,10 +551,16 @@ uninstall() {
                         # but the backup was not recorded in the manifest. We can't do anything here.
                         echo "Warning: Could not find backup for .idx/dev.nix. Please restore it manually."
                     else
-                        echo "   - Removing shell profile entry from $path..."
                         if [ -f "$path" ]; then
-                            sed -i.bak '/^# >>> workspace tool initialize >>>/,/# <<< workspace tool initialize <<</d' "$path" >/dev/null 2>&1 || true
-                            rm -f "${profile_file}.bak"
+                            local start_marker="# >>> workspace tool initialize >>>"
+                            local end_marker="# <<< workspace tool initialize <<<"
+                            if grep -q "$start_marker" "$path" && grep -q "$end_marker" "$path"; then
+                                echo "   - Removing shell profile entry from $path..."
+                                sed -i.bak "/^$start_marker/,/^$end_marker/d" "$path"
+                                rm -f "${path}.bak"
+                            elif grep -q "$start_marker" "$path"; then
+                                echo "Warning: Found start of workspace tool block in '$path' but not the end. Cannot safely remove. Please remove manually."
+                            fi
                         fi
                     fi
                     ;; 
