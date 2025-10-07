@@ -440,7 +440,7 @@ first_run_experience() {
     echo -e "\n--- First-time setup ---"
     echo "Welcome to the 'workspace' tool! Let's get you configured."
 
-    local default_.ws_dir="$HOME/Workspaces"
+    local default_ws_dir="$HOME/Workspaces"
     local ws_dir=""
 
     if [ "$NON_INTERACTIVE" = false ]; then
