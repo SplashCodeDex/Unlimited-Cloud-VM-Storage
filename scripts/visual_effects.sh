@@ -67,7 +67,7 @@ progress_bar() {
         fi
 
         printf "\r(%s%s%d%%) %s %s" "$done_bar" "$remaining_bar" "$percentage" "$spinner_char" "$current_message"
-        sleep $(awk -v duration="$duration" -v total="$total" 'BEGIN {print duration/total}')
+        sleep 1
     done
     printf "\n"
 }
