@@ -42,20 +42,34 @@ spinner() {
 # --- Progress Bar ---
 progress_bar() {
     local duration=${1}
+    local message=${2:-""}
+    shift 2
+    local messages_str="$@"
+    eval "local messages=($messages_str)"
     local total=30
     local elapsed=0
+    local spinstr='⠧⠏⠹⠼⠶⠧'
 
     while [ $elapsed -lt $total ]; do
         elapsed=$(($elapsed+1))
         local percentage=$(( ($elapsed*100)/$total ))
-        local done_length=$(( ($percentage*$total)/100 ))
-        local remaining_length=$(( $total-$done_length ))
-        local done_bar=$(printf "%${done_length}s" | tr ' ' '▇')
-        local remaining_bar=$(printf "%${remaining_length}s" | tr ' ' ' ')
-        printf "[\%s\%s] %d%%" "$done_bar" "$remaining_bar" "$percentage"
-        sleep $(echo "$duration/$total" | bc -l)
+        local done_length=$(( ($percentage*20)/100 ))
+        local remaining_length=$(( 20-$done_length ))
+        local done_bar=$(printf "%${done_length}s" | tr ' ' '#')
+        local remaining_bar=$(printf "%${remaining_length}s" | tr ' ' '-')
+        local i=$((elapsed % 6))
+        local spinner_char=${spinstr:$i:1}
+
+        local current_message=$message
+        if [ ${#messages[@]} -gt 0 ]; then
+            local msg_index=$((elapsed % ${#messages[@]}))
+            current_message=${messages[$msg_index]}
+        fi
+
+        printf "\r(%s%s%d%%) %s %s" "$done_bar" "$remaining_bar" "$percentage" "$spinner_char" "$current_message"
+        sleep $(awk -v duration="$duration" -v total="$total" 'BEGIN {print duration/total}')
     done
-    echo ""
+    printf "\n"
 }
 
 # --- Dots ---

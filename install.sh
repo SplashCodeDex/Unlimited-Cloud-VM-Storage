@@ -97,11 +97,7 @@ prompt_for_sudo() {
         echo "This script needs to install some dependencies using your system's package manager."
         echo "This requires root privileges. Please enter your password if prompted."
         if command -v sudo &>/dev/null; then
-            if sudo -v; then
-                SUDO_CMD="sudo"
-            else
-                abort "sudo authentication failed."
-            fi
+            SUDO_CMD="sudo"
         else
             abort "sudo is not installed. Please install it and run this script again."
         fi
@@ -116,12 +112,35 @@ prompt_for_sudo() {
 
 # --- Dependency and Shell Management ---
 
+get_ncurses_package_name() {
+    case $SYS_PM in
+        apt-get)
+            echo "ncurses-bin"
+            ;;
+        yum|dnf)
+            echo "ncurses-devel"
+            ;;
+        pacman)
+            echo "ncurses"
+            ;;
+        *)
+            echo "ncurses"
+            ;;
+    esac
+}
+
 check_dependencies() {
     echo "(1/5) Checking for dependencies..."
 
-    local core_deps=("sqlite3" "rsync" "git" "curl" "ncurses" "bc")
+    local ncurses_pkg=$(get_ncurses_package_name)
+    local core_deps=("sqlite3" "rsync" "git" "curl")
     local optional_deps=("fzf" "autojump")
     local missing_deps=()
+
+    # Special case for ncurses
+    if ! command -v tput &>/dev/null; then
+        missing_deps+=( "$ncurses_pkg" )
+    fi
 
     for cmd in "${core_deps[@]}" "${optional_deps[@]}"; do
         if ! command -v "$cmd" &>/dev/null; then
@@ -163,8 +182,13 @@ check_dependencies() {
         fi
     done
 
+    # Special case for ncurses
+    if ! command -v tput &>/dev/null; then
+        still_missing_core_deps+=( "$ncurses_pkg" )
+    fi
+
     if [ ${#still_missing_core_deps[@]} -gt 0 ]; then
-        abort "The following core dependencies are still. Please install them manually and run this script again."
+        abort "The following core dependencies are still missing: ${still_missing_core_deps[*]}. Please install them manually and run this script again."
     fi
 }
 

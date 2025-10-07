@@ -12,6 +12,13 @@ sleep 3 &
 spinner $! "Waiting for 2 seconds..."
 
 echo "Demonstrating the progress bar animation..."
-progress_bar 15
+messages=(
+    "'reify:es-toolkit: http fetch GET 200 https://registry.npmjs.org/es-toolkit'"
+    "'reify:zod: http fetch GET 200 https://registry.npmjs.org/zod'"
+    "'reify:ink: http fetch GET 200 https://registry.npmjs.org/ink'"
+    "'reify:fzf: http fetch GET 200 https://registry.npmjs.org/fzf'"
+    "'reify:glob: http fetch GET 200 https://registry.npmjs.org/glob'"
+)
+progress_bar 5 "" "${messages[@]}"
 
 echo "Animations demonstration complete."
